@@ -1,9 +1,10 @@
+streamlit
 dotenv
 cohere
 langchain
 chromadb
-langchain_chroma
-langchain_cohere
+langchain-chroma
+langchain-cohere
 pypdf
 pytesseract
 Pillow
