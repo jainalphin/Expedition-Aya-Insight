@@ -17,4 +17,6 @@ jobs:
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://AlphJain:$HF_TOKEN@huggingface.co/spaces/AlphJain/aya-summarization main
+        run: |
+          git remote add hf https://AlphJain:$HF_TOKEN@huggingface.co/spaces/AlphJain/aya-summarization
+          git push hf HEAD:main --force
