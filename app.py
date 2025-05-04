@@ -7,8 +7,6 @@ import logging
 # Add the project root to the sys.path to allow importing modules like config, document_processing, etc.
 # This assumes app.py is in the project root directory.
 # Adjust the path if your app.py is in a subdirectory.
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
-
 
 try:
     # Import the necessary functions from your main script    print("YES1")
