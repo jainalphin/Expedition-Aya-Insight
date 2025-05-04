@@ -2,6 +2,7 @@ dotenv
 cohere
 langchain
 langchain_chroma
+chromadb
 langchain_cohere
 pypdf
 pytesseract
