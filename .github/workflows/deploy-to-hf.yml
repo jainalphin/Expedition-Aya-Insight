@@ -1,0 +1,25 @@
+name: Deploy to Hugging Face Spaces
+
+on:
+  push:
+    branches: [new]  # or any other branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Push to Hugging Face Space
+        run: |
+          git config --global user.email "jainalphin@example.com"
+          git config --global user.name "jainalphin"
+          git clone https://$HF_TOKEN@huggingface.co/spaces/AlphJain/aya-summarization space_repo
+          rsync -av --exclude='.git' ./ space_repo/
+          cd space_repo
+          git add .
+          git commit -m "🚀 Auto update from GitHub"
+          git push
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
