@@ -1,0 +1,10 @@
+streamlit
+dotenv
+cohere
+langchain
+chromadb
+langchain-chroma
+langchain-cohere
+pypdf
+pytesseract
+Pillow
