@@ -3,6 +3,7 @@ dotenv
 cohere
 langchain
 chromadb
+protobuf~=3.20
 langchain-chroma
 langchain-cohere
 pypdf
