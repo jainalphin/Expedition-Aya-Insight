@@ -1,15 +1,17 @@
 """
-Document processor module - Extract text from documents
-
-A class-based library for extracting text from PDF documents and images
-that can be easily integrated into other projects.
+Document extraction functionality for processing documents.
 """
-
+import json
 import os
 import concurrent.futures
+import time
+
+import cohere
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from langchain.docstore.document import Document
+from ..config.settings import CHUNK_SIZE, LLM_MODEL
 
 # Configure logging with a null handler by default
 logger = logging.getLogger(__name__)
@@ -92,6 +94,7 @@ class DocumentExtractor:
             PdfProcessor(),
             ImageProcessor()
         ]
+        self.cohere_client = None
 
     def add_processor(self, processor: DocumentProcessor) -> None:
         """Add a custom document processor"""
@@ -103,6 +106,35 @@ class DocumentExtractor:
             if processor.can_process(file_path):
                 return processor
         return None
+
+    def get_language(self, text: str) -> str:
+        """
+        Detect the language of the provided text using Cohere API.
+
+        Args:
+            text: Text sample to analyze
+
+        Returns:
+            String containing the detected language name
+        """
+        try:
+            # Initialize client if not already done
+            start = time.time()
+            if not self.cohere_client:
+                self.cohere_client = cohere.Client()
+
+            prompt = f"What language is this sentence written in?\n\n{text}\n\nRespond only with the language name."
+            response = self.cohere_client.chat(
+                model=LLM_MODEL,
+                message= prompt,
+                max_tokens=100,
+                temperature=0.2,
+            )
+            return response.text
+
+        except Exception as e:
+            logger.error(f"Error detecting language: {e}")
+            return "unknown"
 
     def process_file(self, file_path: str, **kwargs) -> Dict[str, Any]:
         """
@@ -120,14 +152,18 @@ class DocumentExtractor:
             "filename": Path(file_path).name,
             "text": "",
             "error": None,
-            "type": None
+            "type": None,
+            "language": None,
+            "chunk_size": 0
         }
 
         try:
             processor = self.get_processor(file_path)
 
             if processor:
-                result["text"] = processor.process(file_path, **kwargs)
+                text = processor.process(file_path, **kwargs)
+                result["text"] = text
+                result["language"] = self.get_language(text[:CHUNK_SIZE]) if text else None
                 result["type"] = processor.__class__.__name__.lower().replace('processor', '')
             else:
                 ext = Path(file_path).suffix.lower()
@@ -153,7 +189,7 @@ class DocumentExtractor:
         logger.info(f"Processing {len(file_paths)} files with {max_workers} workers")
 
         results = []
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers * 2) as executor:
             futures = {
                 executor.submit(self.process_file, file_path, **kwargs): file_path
                 for file_path in file_paths
@@ -167,11 +203,13 @@ class DocumentExtractor:
                 except Exception as e:
                     logger.error(f"Exception processing {file_path}: {e}")
                     results.append({
-                        "file_path": file_path,
+                        "filepath": file_path,
                         "filename": Path(file_path).name,
                         "text": "",
                         "error": str(e),
-                        "type": None
+                        "type": None,
+                        "langugae": None,
+                        "chunk_size": 0
                     })
 
         return results
@@ -268,39 +306,29 @@ class FileOutputManager:
         return stats
 
 
-# Example of how this can be used
-if __name__ == "__main__":
-    # Configure basic logging for the test
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+# Adapter class to convert DocumentExtractor results to langchain Document objects
+class DocumentProcessorAdapter:
+    """
+    Adapter to process documents and convert them to langchain Document objects.
+    """
+    def __init__(self):
+        """Initialize document processor adapter with the extractor."""
+        self.extractor = DocumentExtractor()
 
-    import time
+    def process_folder(self, folder_path):
+        """
+        Process all documents in a folder.
 
-    # Create the extractor
-    extractor = DocumentExtractor()
+        Args:
+            folder_path (str): Path to the folder containing documents
 
-    test_folder = "./pdfs"
-    start_time = time.time()
+        Returns:
+            tuple: (list of langchain Document objects, original extraction results)
+        """
+        if not os.path.exists(folder_path):
+            raise FileNotFoundError(f"Folder not found: {folder_path}")
 
-    # Process all files in the folder with multiple languages support
-    results = extractor.process_folder(
-        test_folder,
-        recursive=True,
-        lang="eng+fra+hin+spa+chi-sim"  # Updated language parameter for images
-    )
-
-    print(f"Processed {len(results)} files in {time.time() - start_time:.2f} seconds")
-
-    # Count successes and failures
-    success_count = sum(1 for r in results if r["text"] and not r["error"])
-    error_count = sum(1 for r in results if r["error"])
-
-    print(f"Successfully processed: {success_count}")
-    print(f"Failed to process: {error_count}")
-
-    # Save the results
-    output_manager = FileOutputManager("extracted_texts")
-    stats = output_manager.save_results(results)
-    print(f"Text files saved: {stats['success']}")
+        # Extract content from documents
+        extraction_results = self.extractor.process_folder(folder_path)
+        print(f"Processed {len(extraction_results)} documents")
+        return extraction_results
