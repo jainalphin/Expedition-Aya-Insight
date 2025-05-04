@@ -1,25 +1,20 @@
-name: Deploy to Hugging Face Spaces
-
+name: Sync to Hugging Face hub
 on:
   push:
-    branches: [new]  # or any other branch
+    branches: [new]
+
+  # to run this workflow manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  sync-to-hub:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Push to Hugging Face Space
-        run: |
-          git config --global user.email "jainalphin@example.com"
-          git config --global user.name "jainalphin"
-          git clone https://$HF_TOKEN@huggingface.co/spaces/AlphJain/aya-summarization space_repo
-          rsync -av --exclude='.git' ./ space_repo/
-          cd space_repo
-          git add .
-          git commit -m "🚀 Auto update from GitHub"
-          git push
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: git push --force https://AlphJain:$HF_TOKEN@huggingface.co/spaces/AlphJain/aya-summarization main
