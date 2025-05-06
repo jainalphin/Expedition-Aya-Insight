@@ -121,12 +121,10 @@ class DocumentSummarizer:
             return None
 
         # Format documents for Cohere API
-        formatted_docs = [{"text": doc} for doc in documents]
-
         try:
             response = self.cohere_client.chat(
                 model=LLM_MODEL,
-                documents=formatted_docs,
+                documents=documents,
                 messages=[
                     {"role": "system", "content": f"You are an expert summarization AI. Please respond in {language}."},
                     {"role": "user", "content": prompt}

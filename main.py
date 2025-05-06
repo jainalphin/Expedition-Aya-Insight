@@ -2,11 +2,11 @@ import time
 from typing import List, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config.settings import DOCS_FOLDER
-from document_processing.extractors import DocumentProcessorAdapter
-from retrieval.vector_store import Retriever
-from summarization.summarizer import DocumentSummarizer
-from summarization.output import SummaryOutputManager
+from app.config.settings import DOCS_FOLDER
+from app.document_processing.extractors import DocumentProcessorAdapter
+from app.retrieval.vector_store import Retriever
+from app.summarization.summarizer import DocumentSummarizer
+from app.summarization.output import SummaryOutputManager
 
 
 def process_documents() -> List[Dict[str, Any]]:
@@ -36,7 +36,7 @@ def batch_summarize_documents(
         start_time = time.time()
         filename = result.get("filename")
         try:
-            summary = summarizer.summerize_document(
+            summary = summarizer.summarize_document(
                 filename=filename,
                 language=result.get("language"),
                 chunk_size=result.get("chunk_size")
