@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 import logging
 
@@ -9,7 +11,7 @@ load_dotenv()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Define default paths for documents and summaries output
-DOCS_FOLDER = os.getenv("DOCS_FOLDER", "samples/pdf5")
+DOCS_FOLDER = os.getenv("DOCS_FOLDER", f"{Path.cwd()}/samples/pdf")
 SUMMARIES_OUTPUT_DIR = os.getenv("SUMMARIES_OUTPUT_DIR", "summaries")
 
 # Create the output directory if it doesn't exist
