@@ -6,13 +6,14 @@ from typing import List, Dict, Any, Optional
 from langchain_chroma import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_cohere import CohereEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 from ..config.settings import (
     CHUNK_SIZE,
     CHUNK_OVERLAP,
     EMBEDDING_MODEL,
-    COHERERANK_MODEL,
+    RERANKER_MODEL,
     COHERERANK_TOPN,
     VECTOSTORE_TOPK,
 )
@@ -33,14 +34,14 @@ class Retriever:
             model: The embedding model name to use for vectorization
         """
         self.cohere_client = cohere.Client()
-        self.chroma_db = None
+        self.faiss = None
         self.embedding_model = CohereEmbeddings(model=model)
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE,
             chunk_overlap=CHUNK_OVERLAP
         )
 
-    def create_from_documents(self, extraction_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def create_from_documents(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create vector store from extracted document texts.
 
@@ -51,13 +52,9 @@ class Retriever:
             Updated extraction results with chunk size information
         """
         chunks = []
-        for result in extraction_results:
-            filename = result['filename']
-            text = result['text']
-            if not text:
-                result['chunk_size'] = 0
-                continue
-
+        filename = result['filename']
+        text = result['text']
+        if text:
             document = Document(
                 page_content=text,
                 metadata={"filename": filename}
@@ -66,14 +63,11 @@ class Retriever:
             result['chunk_size'] = len(doc_chunks)
             chunks.extend(doc_chunks)
 
-        if not chunks:
-            return extraction_results
-
-        self.chroma_db = Chroma.from_documents(
+        self.faiss = FAISS.from_documents(
             chunks,
             embedding=self.embedding_model
         )
-        return extraction_results
+        return result
 
     def similarity_search(self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None) -> List[Document]:
         """
@@ -90,10 +84,10 @@ class Retriever:
         Raises:
             ValueError: If vector store has not been initialized
         """
-        if not self.chroma_db:
+        if not self.faiss:
             raise ValueError("Vector store has not been initialized with documents")
 
-        return self.chroma_db.similarity_search(query=query, k=k, filter=filter)
+        return self.faiss.similarity_search(query=query, k=k, filter=filter)
 
     def reranking(self, query: str, docs: List[Document], top_n: int = 10) -> List[str]:
         """
@@ -109,7 +103,7 @@ class Retriever:
         """
         doc_texts = [doc.page_content for doc in docs]
         rerank_response = self.cohere_client.rerank(
-            model=COHERERANK_MODEL,
+            model=RERANKER_MODEL,
             query=query,
             documents=doc_texts,
             top_n=top_n

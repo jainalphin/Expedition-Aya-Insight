@@ -1,91 +1,64 @@
-import time
-from typing import Dict, List, Optional, Any, Tuple
 import logging
-import cohere
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ..config.settings import LLM_MODEL
+from functools import lru_cache
+from typing import Dict, List, Any, Iterator
 
+import cohere
+from cohere import StreamedChatResponseV2
+
+from ..config.settings import LLM_MODEL
+from ..utils.exceptions import DocumentProcessingError, NoRelevantContentError
+from ..utils.performance import timeit
+
+logger = logging.getLogger(__name__)
 
 class DocumentSummarizer:
     """
-    Processes and summarizes documents by extracting relevant content
-    for different components using vector search and reranking.
+    Processes documents and generates streaming summaries using vector search
+    and LLM-based summarization with Cohere's streaming API.
     """
 
-    def __init__(self, retriever, batch_size: int = 4):
-        """
-        Initialize the document summarizer.
+    # Define components and their descriptions
+    COMPONENT_TYPES = {
+        'basic_info': "Basic Paper Information",
+        'abstract': "Abstract Summary",
+        'methods': "Methodology Summary",
+        'results': "Key Results",
+        'limitations': "Limitations & Future Work",
+        'related_work': "Related Work",
+        'applications': "Practical Applications",
+        'technical': "Technical Details",
+        'equations': "Key Equations",
+    }
 
-        Args:
-            retriever: Vector retriever object for finding relevant document chunks
-            batch_size: Number of concurrent summarization operations
-        """
-        self.batch_size = batch_size
+    # Define the order of sections in the final document
+    SECTIONS_ORDER = [
+        'basic_info', 'abstract', 'methods', 'results',
+        'equations', 'technical', 'related_work',
+        'applications', 'limitations'
+    ]
+
+    def __init__(self, retriever, max_workers: int = 4, batch_size: int = 4):
+        """Initialize summarizer with vector retriever and configuration."""
         self.retriever = retriever
+        self.batch_size = batch_size
+        self.max_workers = max_workers
         self.cohere_client = cohere.ClientV2()
+        self._prompts = self._load_prompts()
 
-        # Setup logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
-        )
-        self.logger = logging.getLogger(__name__)
+        # Validate configuration
+        self._validate_config()
 
-        # Define component names and their descriptive titles
-        self.components = {
-            'basic_info': "Basic Paper Information",
-            'abstract': "Abstract Summary",
-            'methods': "Methodology Summary",
-            'results': "Key Results",
-            'limitations': "Limitations & Future Work",
-            'related_work': "Related Work",
-            'applications': "Practical Applications",
-            'technical': "Technical Details",
-            'equations': "Key Equations",
-        }
-
-        # Initialize prompts for each component
-        self.prompts = self._initialize_prompts()
-
-        # Validate that prompts and components match
-        self._validate_components_and_prompts()
-
-        # Define the order of sections in the final summary
-        self.sections_order = [
-            'basic_info', 'abstract',
-            'methods', 'results', 'equations', 'technical',
-            'related_work', 'applications', 'limitations'
-        ]
-
-    def _validate_components_and_prompts(self) -> None:
-        """
-        Validate that all components have corresponding prompts and vice versa.
-        Logs warnings for any mismatches.
-        """
-        missing_prompts = [comp for comp in self.components if comp not in self.prompts]
-        if missing_prompts:
-            self.logger.warning(f"No prompts found for components: {missing_prompts}")
-
-        missing_components = [prompt_key for prompt_key in self.prompts if prompt_key not in self.components]
-        if missing_components:
-            self.logger.warning(f"Prompts found for components not in self.components: {missing_components}")
-
-    def _initialize_prompts(self) -> Dict[str, str]:
-        """
-        Initialize prompts for each component from the prompt module.
-
-        Returns:
-            Dictionary mapping component keys to their respective prompts
-        """
+    @lru_cache(maxsize=1)
+    def _load_prompts(self) -> Dict[str, str]:
+        """Load and cache prompts for each component type."""
         try:
             from ..summarization.prompts import (
                 basic_info_prompt, abstract_prompt,
                 methods_prompt, results_prompt, limitations_prompt,
                 related_work_prompt, applications_prompt,
-                technical_prompt, equations_prompt,
-                # These are imported but not used in the component mapping:
-                visuals_prompt, contributions_prompt,
-                quick_summary_prompt, reading_guide_prompt
+                technical_prompt, equations_prompt
             )
 
             return {
@@ -100,29 +73,34 @@ class DocumentSummarizer:
                 'equations': equations_prompt,
             }
         except ImportError as e:
-            self.logger.error(f"Error importing prompts: {e}")
+            logger.error(f"Failed to load summarization prompts: {e}")
             return {}
 
-    def summarize_text(self, documents: List[str], prompt: str, language: str) -> Optional[str]:
+    def _validate_config(self) -> None:
+        """Validate that all components have corresponding prompts."""
+        if not self._prompts:
+            raise ValueError("No prompts loaded for document summarization")
+
+        missing_prompts = [comp for comp in self.COMPONENT_TYPES if comp not in self._prompts]
+        if missing_prompts:
+            logger.warning(f"Missing prompts for components: {missing_prompts}")
+
+    def get_streaming_summary(
+            self,
+            documents: List[str],
+            prompt: str,
+            language: str = "en"
+    ) -> Iterator[StreamedChatResponseV2]:
         """
-        Summarizes the provided documents using the given prompt and language
-        via the Cohere Chat API.
+        Generate a streaming summary using Cohere's chat API.
 
-        Args:
-            documents: List of document texts to summarize
-            prompt: The prompt to guide the summarization
-            language: Target language for the summary
-
-        Returns:
-            Summarized text or None if the API call fails
+        Returns a generator that yields events as content is generated.
         """
         if not documents:
-            self.logger.warning("No documents provided for summarization.")
-            return None
+            raise NoRelevantContentError("No document content provided for summarization")
 
-        # Format documents for Cohere API
         try:
-            response = self.cohere_client.chat(
+            return self.cohere_client.chat_stream(
                 model=LLM_MODEL,
                 documents=documents,
                 messages=[
@@ -130,148 +108,132 @@ class DocumentSummarizer:
                     {"role": "user", "content": prompt}
                 ],
             )
-
-            # Extract text from response, with proper error handling
-            if (response and
-                    hasattr(response, 'message') and
-                    response.message and
-                    hasattr(response.message, 'content') and
-                    response.message.content and
-                    len(response.message.content) > 0 and
-                    hasattr(response.message.content[0], 'text')):
-                return response.message.content[0].text
-            else:
-                self.logger.warning(f"Unexpected API response structure for prompt: {prompt[:50]}...")
-                return None
-
         except Exception as e:
-            self.logger.error(f"Error during Cohere API call: {str(e)}")
-            return None
+            logger.error(f"Cohere API error: {e}")
+            raise DocumentProcessingError(f"Failed to generate summary: {str(e)}")
 
-    def extract_relevant_documents(self, component: str, filename: str, chunk_size: int) -> List[str]:
-        """
-        Extracts relevant document chunks for a specific component.
-
-        Args:
-            component: The component key to extract documents for
-            filename: The filename to filter documents by
-            chunk_size: The number of chunks in the document
-
-        Returns:
-            List of relevant document texts
-        """
-        component_description = self.components.get(component, component)
+    def get_relevant_document_chunks(self, component: str, filename: str, chunk_size: int) -> List[str]:
+        """Retrieve relevant document chunks for a specific component using vector search."""
+        component_description = self.COMPONENT_TYPES.get(component, component)
         query = f"Analyze the {component_description} section from the document titled '{filename}'."
 
         try:
-            documents = self.retriever.get_relevant_docs(
+            return self.retriever.get_relevant_docs(
                 chromdb_query=query,
                 rerank_query=query,
                 filter={'filename': filename},
                 chunk_size=chunk_size
             )
-            return documents
         except Exception as e:
-            self.logger.error(f"Error during document retrieval for component {component}: {str(e)}")
+            logger.error(f"Document retrieval error for {component}: {e}")
             return []
 
-    def summarize_document(self, filename: str, language: str, chunk_size: int) -> str:
+    def _process_component(self, comp_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Summarizes a document by processing each component in parallel.
-
-        Args:
-            filename: The name of the document to summarize
-            language: Target language for the summary
-            chunk_size: The number of chunks in the document
-
-        Returns:
-            Compiled summary of the document
+        Process a single component for streaming summary generation.
+        This is used by the ThreadPoolExecutor to parallelize component processing.
         """
-        start_total = time.time()
-        components = list(self.components.keys())
-        results = {}
-        errors = {}
+        comp_name = comp_data['comp_name']
+        filename = comp_data['filename']
+        language = comp_data.get('language', 'en')
+        chunk_size = comp_data.get('chunk_size', 1000)
 
-        self.logger.info(f"Starting summarization for document: {filename}")
+        try:
+            # Get relevant document chunks
+            document_chunks = self.get_relevant_document_chunks(comp_name, filename, chunk_size)
 
-        def process_component(comp: str) -> Tuple[str, Optional[str], Optional[str]]:
-            """Process a single component and return results/errors"""
-            comp_start = time.time()
-            self.logger.info(f"Starting processing for component: {comp}")
+            if not document_chunks:
+                logger.warning(f"No relevant content found for {comp_name} in '{filename}'")
+                return {
+                    'filename': filename,
+                    'comp_name': comp_name,
+                    'success': False,
+                    'error': 'No relevant content found'
+                }
 
-            try:
-                document_chunks = self.extract_relevant_documents(comp, filename, chunk_size)
+            # Get prompt for this component
+            prompt = self._prompts.get(comp_name)
+            if not prompt:
+                logger.warning(f"No prompt defined for component: {comp_name}")
+                return {
+                    'filename': filename,
+                    'comp_name': comp_name,
+                    'success': False,
+                    'error': 'No prompt defined'
+                }
 
-                if not document_chunks:
-                    self.logger.warning(f"No documents found for component: {comp} in file {filename}")
-                    return comp, None, "No relevant documents found"
+            # Generate streaming summary
+            stream_generator = self.get_streaming_summary(document_chunks, prompt, language)
 
-                prompt = self.prompts.get(comp)
-                if not prompt:
-                    self.logger.warning(f"No prompt defined for component: {comp}")
-                    return comp, None, "No prompt defined"
+            # Create component with stream
+            component = {
+                'filename': filename,
+                'comp_name': comp_name,
+                comp_name: stream_generator,
+                'success': True
+            }
+            logger.info(f"Created stream generator for '{filename}' component '{comp_name}'")
+            return component
 
-                # Summarize the retrieved documents
-                summary = self.summarize_text(document_chunks, prompt, language)
+        except Exception as e:
+            logger.error(f"Failed to process component '{comp_name}' for '{filename}': {e}")
+            return {
+                'filename': filename,
+                'comp_name': comp_name,
+                'success': False,
+                'error': str(e)
+            }
 
-                comp_end = time.time()
-                self.logger.info(f"Finished processing component: {comp}. Time: {comp_end - comp_start:.2f}s")
-                return comp, summary, None
+    @timeit
+    def generate_summarizer_components(
+            self,
+            filename: str,
+            language: str = "en",
+            chunk_size: int = 1000
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate streaming summary components for a document using parallel processing.
 
-            except Exception as e:
-                comp_end = time.time()
-                error_msg = str(e)
-                self.logger.error(f"Error processing component {comp}: {error_msg}. Time: {comp_end - comp_start:.2f}s")
-                return comp, None, error_msg
+        Returns a list of component dictionaries, each containing a
+        streaming generator for incremental content consumption.
+        """
+        logger.info(f"Generating summaries for '{filename}' using ThreadPoolExecutor with {self.max_workers} workers")
 
-        # Determine optimal worker count based on batch size
-        max_workers = min(len(components), self.batch_size)
+        # Prepare component data for parallel processing
+        component_tasks = [
+            {
+                'comp_name': comp_name,
+                'filename': filename,
+                'language': language,
+                'chunk_size': chunk_size
+            }
+            for comp_name in self.COMPONENT_TYPES
+        ]
 
-        # Use ThreadPoolExecutor for concurrent API calls
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_component = {executor.submit(process_component, comp): comp for comp in components}
+        components = []
 
-            # Process results as they complete
-            for future in as_completed(future_to_component):
-                comp = future_to_component[future]
+        # Process components in parallel using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(self._process_component, task): task['comp_name']
+                for task in component_tasks
+            }
+
+            for future in as_completed(futures):
+                comp_name = futures[future]
                 try:
-                    comp_name, result, error = future.result()
-                    if result is not None:
-                        results[comp_name] = result
-                    elif error:
-                        errors[comp_name] = error
-                except Exception as exc:
-                    self.logger.error(f"{comp} generated an exception during result retrieval: {str(exc)}")
-                    errors[comp] = str(exc)
+                    result = future.result()
+                    if result['success']:
+                        components.append(result)
+                except Exception as e:
+                    logger.error(f"Thread execution error for '{comp_name}': {e}")
 
-        end_total = time.time()
-        total_time = end_total - start_total
-        success_count = len(results)
-        error_count = len(errors)
-
-        self.logger.info(
-            f"Completed summarization of {filename} in {total_time:.2f}s. "
-            f"Successful components: {success_count}, Failed components: {error_count}"
-        )
-
-        if errors:
-            self.logger.warning(f"Components with errors: {list(errors.keys())}")
-
-        # Compile the available results
-        compiled = self.compile_summary(filename, results)
-        return compiled
+        successful_count = len([c for c in components if c.get('success', False)])
+        logger.info(f"Generated {successful_count}/{len(self.COMPONENT_TYPES)} components for '{filename}'")
+        return components
 
     def compile_summary(self, filename: str, results: Dict[str, str]) -> str:
-        """
-        Compiles a summary by concatenating the results of all components.
-
-        Args:
-            filename: The name of the document being summarized
-            results: Dictionary mapping component keys to their summary text
-
-        Returns:
-            Compiled summary text in Markdown format
-        """
+        """Compile a full document summary from component results."""
         generation_time = time.strftime('%Y-%m-%d %H:%M:%S')
 
         lines = [
@@ -280,16 +242,16 @@ class DocumentSummarizer:
         ]
 
         # Add sections in the predefined order
-        for section in self.sections_order:
+        for section in self.SECTIONS_ORDER:
             if section in results and results[section]:
-                title = self.components.get(section, section).title()
+                title = self.COMPONENT_TYPES.get(section, section).title()
                 lines.append(f"## {title}\n")
                 lines.append(f"{results[section]}\n")
 
-        # Add any sections that are in results but not in sections_order
+        # Add any additional sections not in predefined order
         for section, content in results.items():
-            if section not in self.sections_order and content:
-                title = self.components.get(section, section).title()
+            if section not in self.SECTIONS_ORDER and content:
+                title = self.COMPONENT_TYPES.get(section, section).title()
                 lines.append(f"## {title}\n")
                 lines.append(f"{content}\n")
 
