@@ -148,6 +148,7 @@ class DocumentSummarizer:
                 'resource_link': stream_generator,
                 'success': True
             }
+
             logger.info(f"Created resource link stream generator for '{filename}'")
             return component
 
