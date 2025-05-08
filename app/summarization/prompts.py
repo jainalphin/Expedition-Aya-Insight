@@ -207,3 +207,5 @@ Provide a high-level summary of the paper, tailored for research leads, grant re
 * **Implications:** [Practical, theoretical, or future impact of the work]
 * **Relevance:** [Why this paper is important and should be paid attention to]
 """
+
+resource_link_prompt = """Find the original link of this document from the website for this text \n\n {text} \n\n  Respond only with the Link"""

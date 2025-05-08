@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,7 +20,7 @@ os.makedirs(SUMMARIES_OUTPUT_DIR, exist_ok=True)
 
 # Define models for embedding, reranking, and language model
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "embed-v4.0")
-COHERERANK_MODEL = os.getenv('COHERERANK_MODEL', 'rerank-v3.5')
+RERANKER_MODEL = os.getenv('RERANKER_MODEL', 'rerank-v3.5')
 LLM_MODEL = os.getenv("LLM_MODEL", "command-a-03-2025")
 
 # Define settings for text splitting and retrieval
