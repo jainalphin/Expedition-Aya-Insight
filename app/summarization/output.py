@@ -2,7 +2,7 @@
 Output handling for document summaries in multiple formats.
 """
 import os
-from ..config.settings import SUMMARIES_OUTPUT_DIR
+from app.config.settings import SUMMARIES_OUTPUT_DIR
 
 
 class SummaryOutputManager:

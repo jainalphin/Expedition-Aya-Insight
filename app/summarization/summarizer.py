@@ -7,9 +7,9 @@ from typing import Dict, List, Any, Iterator
 import cohere
 from cohere import StreamedChatResponseV2
 
-from ..config.settings import LLM_MODEL
-from ..utils.exceptions import DocumentProcessingError, NoRelevantContentError
-from ..utils.performance import timeit
+from app.config.settings import LLM_MODEL
+from app.utils.exceptions import DocumentProcessingError, NoRelevantContentError
+from app.utils.performance import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +30,14 @@ class DocumentSummarizer:
         'applications': "Practical Applications",
         'technical': "Technical Details",
         'equations': "Key Equations",
+        'resource_link': "Original Research Link",
     }
 
     # Define the order of sections in the final document
     SECTIONS_ORDER = [
         'basic_info', 'abstract', 'methods', 'results',
         'equations', 'technical', 'related_work',
-        'applications', 'limitations'
+        'applications', 'limitations', 'resource_link'
     ]
 
     def __init__(self, retriever, max_workers: int = 4, batch_size: int = 4):
@@ -58,7 +59,7 @@ class DocumentSummarizer:
                 basic_info_prompt, abstract_prompt,
                 methods_prompt, results_prompt, limitations_prompt,
                 related_work_prompt, applications_prompt,
-                technical_prompt, equations_prompt
+                technical_prompt, equations_prompt, resource_link_prompt
             )
 
             return {
@@ -71,6 +72,7 @@ class DocumentSummarizer:
                 'applications': applications_prompt,
                 'technical': technical_prompt,
                 'equations': equations_prompt,
+                'resource_link': resource_link_prompt,
             }
         except ImportError as e:
             logger.error(f"Failed to load summarization prompts: {e}")
@@ -127,6 +129,56 @@ class DocumentSummarizer:
         except Exception as e:
             logger.error(f"Document retrieval error for {component}: {e}")
             return []
+
+    def _process_resource_link(self, comp_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process resource link component for streaming generation.
+        """
+        filename = comp_data['filename']
+        document_text = comp_data.get('document_text', '')
+
+        try:
+            # Generate streaming resource link
+            stream_generator = self.get_resource_link_stream(document_text)
+
+            # Create component with stream
+            component = {
+                'filename': filename,
+                'comp_name': 'resource_link',
+                'resource_link': stream_generator,
+                'success': True
+            }
+            logger.info(f"Created resource link stream generator for '{filename}'")
+            return component
+
+        except Exception as e:
+            logger.error(f"Failed to process resource link for '{filename}': {e}")
+            return {
+                'filename': filename,
+                'comp_name': 'resource_link',
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_resource_link_stream(self, document_text: str) -> Iterator:
+        """
+        Generate a streaming response for finding the original research paper link.
+        Returns a generator that yields events as content is generated.
+        """
+        if not document_text:
+            logger.error("Empty document content provided for resource link lookup")
+            raise NoRelevantContentError("No document content provided for resource link lookup")
+
+        try:
+            cohere_client = cohere.Client()
+            yield cohere_client.chat(
+                model=LLM_MODEL,
+                message=f"Find the research paper link for this document: {document_text[:1000]} Respond only with the link.",
+                connectors=[{"id": "web-search"}],
+            ).text
+        except Exception as e:
+            logger.error(f"Cohere API error in resource link lookup: {e}")
+            raise DocumentProcessingError(f"Failed to generate resource link: {str(e)}")
 
     def _process_component(self, comp_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -189,7 +241,8 @@ class DocumentSummarizer:
             self,
             filename: str,
             language: str = "en",
-            chunk_size: int = 1000
+            chunk_size: int = 1000,
+            document_text: str = ""
     ) -> List[Dict[str, Any]]:
         """
         Generate streaming summary components for a document using parallel processing.
@@ -205,7 +258,8 @@ class DocumentSummarizer:
                 'comp_name': comp_name,
                 'filename': filename,
                 'language': language,
-                'chunk_size': chunk_size
+                'chunk_size': chunk_size,
+                'document_text': document_text
             }
             for comp_name in self.COMPONENT_TYPES
         ]
@@ -214,10 +268,14 @@ class DocumentSummarizer:
 
         # Process components in parallel using ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(self._process_component, task): task['comp_name']
-                for task in component_tasks
-            }
+            futures = {}
+
+            # Submit normal components
+            for task in component_tasks:
+                if task['comp_name'] != 'resource_link':
+                    futures[executor.submit(self._process_component, task)] = task['comp_name']
+                else:
+                    futures[executor.submit(self._process_resource_link, task)] = task['comp_name']
 
             for future in as_completed(futures):
                 comp_name = futures[future]

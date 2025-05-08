@@ -40,7 +40,8 @@ def process_single_document(doc_data: Dict[str, Any], max_workers: int = 4) -> L
         components = summarizer.generate_summarizer_components(
             filename=doc_data.get("filename"),
             language=doc_data.get("language", "en"),
-            chunk_size=doc_data.get("chunk_size", 1000)
+            chunk_size=doc_data.get("chunk_size", 1000),
+            document_text=doc_data.get("text", '')[:1000]
         )
         return components
     except Exception as e:
@@ -111,12 +112,17 @@ def consume_stream(stream_data: Dict[str, Any]) -> Tuple[str, str]:
         logger.info(f"Processing stream for {file_id}")
         print(f"\n{'=' * 50}\nProcessing: {file_id}\n")
 
-        # Process streaming events
-        for event in stream_generator:
-            if event.type == "content-delta":
-                delta_text = event.delta.message.content.text
-                content_buffer.append(delta_text)
-                print(delta_text, end="", flush=True)
+        # Handle resource_link component stream differently
+        if component_type == 'resource_link':
+            for event in stream_generator:
+                content_buffer.append(str(event))
+        else:
+            # Handle regular component streams
+            for event in stream_generator:
+                if event.type == "content-delta":
+                    delta_text = event.delta.message.content.text
+                    content_buffer.append(delta_text)
+                    print(delta_text, end="", flush=True)
 
         print(f"\n{'=' * 50}")
         return file_id, "success"

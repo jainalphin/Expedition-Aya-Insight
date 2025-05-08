@@ -9,7 +9,7 @@ from langchain_cohere import CohereEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
-from ..config.settings import (
+from app.config.settings import (
     CHUNK_SIZE,
     CHUNK_OVERLAP,
     EMBEDDING_MODEL,
