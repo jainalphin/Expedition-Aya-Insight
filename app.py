@@ -20,7 +20,7 @@ Path(DOCS_FOLDER).mkdir(parents=True, exist_ok=True)
 logger = logging.getLogger(__name__)
 
 # Streamlit UI Configuration
-st.set_page_config(layout="wide", page_title="Document Summarization")
+st.set_page_config(layout="wide", page_title="Aya Insight")
 
 # Custom CSS for creative loader
 custom_css = """
@@ -161,7 +161,7 @@ workers = st.sidebar.slider(
 )
 
 # Main UI
-st.title("📄 Document Summarization")
+st.title("🕵️ Aya Insight")
 status_message_placeholder = st.empty()
 progress_bar_placeholder = st.empty()
 loader_placeholder = st.empty() # Single placeholder for the loader
