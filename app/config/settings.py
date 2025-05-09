@@ -12,7 +12,7 @@ load_dotenv()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Define default paths for documents and summaries output
-DOCS_FOLDER = os.getenv("DOCS_FOLDER", f"{Path.cwd()}/samples/pdf")
+DOCS_FOLDER = os.getenv("DOCS_FOLDER", f"{Path.cwd()}/tmpdir")
 SUMMARIES_OUTPUT_DIR = os.getenv("SUMMARIES_OUTPUT_DIR", "summaries")
 
 # Create the output directory if it doesn't exist
