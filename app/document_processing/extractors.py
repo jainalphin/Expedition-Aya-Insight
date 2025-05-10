@@ -189,7 +189,7 @@ class DocumentExtractor:
         logger.info(f"Processing {len(file_paths)} files with {max_workers} workers")
 
         results = []
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers * 2) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
             futures = {
                 executor.submit(self.process_file, file_path, **kwargs): file_path
                 for file_path in file_paths
