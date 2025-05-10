@@ -1,3 +1,5 @@
+import shutil
+import tempfile
 import time
 import concurrent.futures
 from typing import List, Dict, Any, Tuple
@@ -15,11 +17,56 @@ from app.utils.logger import setup_logger
 
 logger = logging.getLogger(__name__)
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__)))
+TEMP_UPLOAD_DIR = os.path.join(PROJECT_ROOT, 'temp_uploads')
+os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
+
+def clear_upload_directory():
+    """Clears all files from the persistent temporary upload directory."""
+    if os.path.exists(TEMP_UPLOAD_DIR):
+        logger.info(f"Clearing temporary upload directory: {TEMP_UPLOAD_DIR}")
+        # Iterate through all items in the directory
+        for item in os.listdir(TEMP_UPLOAD_DIR):
+            item_path = os.path.join(TEMP_UPLOAD_DIR, item)
+            try:
+                # Check if it's a file or a symbolic link and remove it
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                    logger.debug(f"Deleted file/link: {item_path}")
+                # Check if it's a directory and remove it and its contents
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                    logger.debug(f"Deleted directory: {item_path}")
+            except Exception as e:
+                logger.error(f"Error deleting {item_path}: {e}", exc_info=True)
+    else:
+         logger.info(f"Temporary upload directory does not exist, no need to clear: {TEMP_UPLOAD_DIR}")
+
+
+
+def process_uploaded_files(uploaded_files) -> List[Dict[str, Any]]:
+    start_time = time.time()
+    logger.info(f"Starting processing for {len(uploaded_files)} uploaded files.")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for uploaded_file in uploaded_files:
+            file_path = os.path.join(tmpdir, uploaded_file.name)
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.getvalue())
+
+        processor = DocumentProcessorAdapter() # Corrected typo here
+        extraction_results = processor.process_folder(tmpdir)
+
+    end_time = time.time()
+    logger.info(f"Finished processing uploaded files in {end_time - start_time:.2f} seconds.")
+    return extraction_results
+
 
 @timeit
-def process_documents() -> List[Dict[str, Any]]:
+def process_documents(directory=None) -> List[Dict[str, Any]]:
     """Extract and preprocess documents from the configured folder."""
     processor = DocumentProcessorAdapter()
+    if directory:
+        return processor.process_folder(directory)
     return processor.process_folder(DOCS_FOLDER)
 
 

@@ -40,7 +40,7 @@ class DocumentSummarizer:
         'applications', 'limitations', 'resource_link'
     ]
 
-    def __init__(self, retriever, max_workers: int = 4, batch_size: int = 4):
+    def __init__(self, retriever, max_workers: int = 16, batch_size: int = 4):
         """Initialize summarizer with vector retriever and configuration."""
         self.retriever = retriever
         self.batch_size = batch_size
