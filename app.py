@@ -596,3 +596,9 @@ if uploaded_files:
 
         st.session_state.start_time = None
         process_executor.shutdown(wait=False)
+
+if __name__ == "__main__":
+    if "__streamlitmagic__" not in locals():
+        from streamlit.web.bootstrap import run
+
+        run(__file__, False, [], {})
