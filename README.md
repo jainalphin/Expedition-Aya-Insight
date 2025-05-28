@@ -6,3 +6,6 @@ Aya-Insight is a fast, multilingual AI tool that extracts structured, reasoning-
 ```python
 uv run app.py 
 ```
+
+#Demo 
+https://www.youtube.com/watch?v=CjXP_AHlLXI
