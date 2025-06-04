@@ -204,7 +204,7 @@ if 'timer_placeholder' not in st.session_state:
     st.session_state.timer_placeholder = None  # Will be created when needed
 
 with st.sidebar:
-    st.markdown("<h3>🗂️ Aya Multi-File Summary Tool 🚀</h3>", unsafe_allow_html=True)
+    st.markdown("<h3>Aya Multi-File Summary Tool 🚀</h3>", unsafe_allow_html=True)
 
     uploaded_files = st.file_uploader("Choose PDF files to analyze:", type="pdf", accept_multiple_files=True)
 
