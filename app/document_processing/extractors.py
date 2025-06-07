@@ -208,7 +208,7 @@ class DocumentExtractor:
                         "text": "",
                         "error": str(e),
                         "type": None,
-                        "langugae": None,
+                        "language": None,
                         "chunk_size": 0
                     })
 

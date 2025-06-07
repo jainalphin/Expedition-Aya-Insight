@@ -308,7 +308,7 @@ def process_file_task(doc_data, update_queue):
         )
 
         component_futures = {}
-        total_components = len(getattr(summarizer, 'COMPONENT_TYPES', components))
+        total_components = 1
 
         with ThreadPoolExecutor(max_workers=min(16, total_components + 1)) as component_executor:
             for comp in components:
@@ -359,15 +359,7 @@ if uploaded_files:
         update_queue = Queue()
         component_info = {
             'resource_link': '🔗 Original Research Link',
-            'basic_info': "ℹ️ Basic Paper Information",
-            'abstract': "📝 Abstract Summary",
-            'methods': "🔬 Methodology Overview",
-            'technical': "⚙️ Technical Details & Concepts",
-            'equations': "🧮 Key Equations & Formulas",
-            'results': "📊 Results & Findings",
-            'limitations': "🚧 Limitations & Future Work",
             'related_work': "📚 Related Work",
-            'applications': "💡 Practical Applications & Use Cases",
         }
 
         try:
