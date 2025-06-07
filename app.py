@@ -304,7 +304,7 @@ def process_file_task(doc_data, update_queue):
             filename=doc_data.get("filename"),
             language=doc_data.get("language", "en"),
             chunk_size=doc_data.get("chunk_size", 1000),
-            document_text=doc_data.get("text", '')[:1000]
+            document_text=doc_data.get("text", '')
         )
 
         component_futures = {}

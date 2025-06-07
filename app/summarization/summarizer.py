@@ -81,7 +81,7 @@ class DocumentSummarizer:
         Process resource link component for streaming generation.
         """
         filename = comp_data['filename']
-        document_text = comp_data.get('document_text', '')
+        document_text = comp_data.get('document_text', '')[:1000]
 
         try:
             # Generate streaming resource link
