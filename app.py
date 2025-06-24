@@ -1,10 +1,12 @@
+import os
+
 import streamlit as st
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue, Empty
 import uuid
-from streaming_generator import clear_upload_directory, setup_retrieval_system, process_uploaded_files
+from streaming_generator import clear_upload_directory, process_pdf_links
 from app.summarization.summarizer import DocumentSummarizer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(threadName)s:%(lineno)d] - %(message)s')
@@ -207,7 +209,51 @@ if 'timer_placeholder' not in st.session_state:
 with st.sidebar:
     st.markdown("<h3>Aya Multi-File Summary Tool 🚀</h3>", unsafe_allow_html=True)
 
-    uploaded_files = st.file_uploader("Choose PDF files to analyze:", type="pdf", accept_multiple_files=True)
+    # Tab selection for input method
+    input_method = st.radio("Choose input method:", ["Upload Files", "PDF URLs"], horizontal=True)
+
+    pdf_links = []  # This will store all PDF links (from uploads or URLs)
+
+    if input_method == "Upload Files":
+        uploaded_files = st.file_uploader("Choose PDF files to analyze:", type="pdf", accept_multiple_files=True)
+
+        # Convert uploaded files to temporary links
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                try:
+                    # Create temporary file
+                    temp_dir = "temp_uploads"
+                    os.makedirs(temp_dir, exist_ok=True)
+
+                    # Generate unique filename
+                    timestamp = int(time.time() * 1000)
+                    temp_filename = f"{timestamp}_{uploaded_file.name}"
+                    temp_path = os.path.join(temp_dir, temp_filename)
+
+                    # Save uploaded file to temporary location
+                    with open(temp_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    pdf_links.append(temp_path)
+
+                except Exception as e:
+                    st.error(f"Error processing {uploaded_file.name}: {e}")
+
+    else:  # PDF URLs
+        st.markdown("**Enter PDF URLs (one per line):**")
+        url_input = st.text_area(
+            "PDF URLs:",
+            height=150,
+            placeholder="https://arxiv.org/pdf/1706.03762\nhttps://aclanthology.org/D19-3019.pdf\n...",
+            help="Enter each PDF URL on a new line"
+        )
+
+        if url_input.strip():
+            urls = [url.strip() for url in url_input.strip().split('\n') if url.strip()]
+            valid_urls = []
+            for url in urls:
+                valid_urls.append(url)
+                pdf_links.append(url)
 
     if st.button("🧹 Clear Upload Cache", help="Removes temporarily saved uploaded files and resets the app state."):
         try:
@@ -226,10 +272,13 @@ with st.sidebar:
             st.error(f"Error clearing directory: {e}")
             logger.error(f"Error during cache clear: {e}", exc_info=True)
 
+    # Store pdf_links in session state for use in main app
+    st.session_state.pdf_links = pdf_links
+
     summarize_button = st.button("✨ Summarize All Files",
                                  type="primary",
                                  key="summarize_all",
-                                 disabled=st.session_state.tasks_running > 0 or not uploaded_files,
+                                 disabled=st.session_state.tasks_running > 0 or not pdf_links,
                                  use_container_width=True)
 
 # Main content area
@@ -239,16 +288,6 @@ st.title("📄✨ Aya Insight - AI-Powered Scientific Summarization")
 st.markdown(
     """
     Welcome to **Aya Insight**! Your intelligent assistant for dissecting and understanding PDF documents.
-
-    - 📥 **Upload your documents** using the panel on the left.
-    - 📌 Supports **PDF** format for analysis.
-
-    🧠 Click on **'Summarize All Files'** and Aya will generate:
-    - `🔎` **Section-wise Insights**: Detailed breakdowns of document segments.
-    - `📝` **Concise Summaries**: Quick understanding of the core content.
-    - `📌` **Key Takeaways**: The most crucial points highlighted.
-
-    ⚡ _Perfect for accelerating research, reviewing reports, or mastering bulk document analysis!_
     """
 )
 
@@ -269,8 +308,8 @@ def get_and_summarize_component_task(comp, update_queue):
         else:
             # Handle regular component streams (LLM responses)
             for event in stream:
-                if event.type == "content-delta":
-                    delta_text = event.delta.message.content.text
+                if event.choices[0].delta.content:
+                    delta_text = event.choices[0].delta.content
                     update_queue.put(('chunk', filename, component_key, delta_text))
                     chunk_count += 1
 
@@ -295,43 +334,14 @@ def process_file_task(doc_data, update_queue):
     try:
         logger.info(f"[{filename}] Starting process_file_task.")
         update_queue.put(('status', filename, None, "🔄 Initializing analysis engine..."))
-
-        doc_data, retriever = setup_retrieval_system(doc_data)
-        summarizer = DocumentSummarizer(retriever)
+        summarizer = DocumentSummarizer()
 
         update_queue.put(('status', filename, None, "⚙️ Generating content components..."))
-        components = summarizer.generate_summarizer_components(
-            filename=doc_data.get("filename"),
-            language=doc_data.get("language", "en"),
-            chunk_size=doc_data.get("chunk_size", 1000),
-            document_text=doc_data.get("text", '')
-        )
 
-        component_futures = {}
-        total_components = 1
+        summarizer_iterator = summarizer._process_component(comp_data=doc_data)
 
-        with ThreadPoolExecutor(max_workers=min(16, total_components + 1)) as component_executor:
-            for comp in components:
-                comp_name_for_log = comp.get('comp_name', 'unknown_component')
-                logger.info(f"[{filename}] Submitting task for component: {comp_name_for_log}")
-                future = component_executor.submit(
-                    get_and_summarize_component_task,
-                    comp, update_queue
-                )
-                component_futures[future] = comp_name_for_log
-
-            processed_count = 0
-            for future in as_completed(component_futures):
-                comp_key = component_futures[future]
-                processed_count += 1
-                try:
-                    future.result()  # Check for exceptions during component task execution
-                except Exception as exc:
-                    logger.error(f'[{filename}-{comp_key}] Exception in component task execution: {exc}', exc_info=True)
-                    update_queue.put(('comp_error', filename, comp_key,
-                                      f"_Critical error in {comp_key.replace('_', ' ').title()}: {str(exc)[:100]}..._"))
-
-        logger.info(f"[{filename}] All ({processed_count}/{total_components}) component tasks completed submission and processing.")
+        get_and_summarize_component_task(summarizer_iterator, update_queue)
+        logger.info(f"[{filename}] Summary tasks completed submission and processing.")
         update_queue.put(('file_done', filename))  # Signal that this file's processing (all components) is done
 
     except Exception as e:
@@ -339,9 +349,12 @@ def process_file_task(doc_data, update_queue):
         update_queue.put(('file_error', filename, f"Critical processing error: {str(e)[:150]}..."))
 
 
-if uploaded_files:
+# Get PDF links from session state (set by the sidebar)
+pdf_links = st.session_state.get('pdf_links', [])
+
+if pdf_links:
     if not summarize_button and not st.session_state.tasks_running:
-        st.info(f"Found {len(uploaded_files)} PDF file(s). Click 'Summarize All Files' in the sidebar to process.")
+        st.info("Click 'Summarize All Files' in the sidebar to process.")
 
     if summarize_button:
         st.markdown("---")
@@ -354,33 +367,15 @@ if uploaded_files:
         st.session_state.results = {}
         st.session_state.file_placeholders = {}
         st.session_state.component_content = {}
-        st.session_state.tasks_running = len(uploaded_files)
+        st.session_state.tasks_running = len(pdf_links)
 
         update_queue = Queue()
         component_info = {
-            'resource_link': '🔗 Original Research Link',
-            'related_work': "📚 Related Work",
+            'summary': "📚 Summary",
         }
 
-        try:
-            temp_summarizer = DocumentSummarizer(retriever=None)
-            if hasattr(temp_summarizer, 'COMPONENT_TYPES') and isinstance(temp_summarizer.COMPONENT_TYPES, dict):
-                component_info = temp_summarizer.COMPONENT_TYPES
-                logger.info(f"Dynamically loaded component types: {list(component_info.keys())}")
-            else:
-                logger.warning("DocumentSummarizer does not have a 'COMPONENT_TYPES' dict. Using default.")
-        except Exception as e:
-            st.warning(f"Could not pre-fetch dynamic component structure: {e}. Using defaults.")
-            logger.warning(f"Failed to get dynamic component info: {e}", exc_info=True)
-
         default_layout_order = [
-            ['resource_link'],
-            ['basic_info', 'methods'],
-            ['abstract', 'technical'],
-            ['equations'],
-            ['results'],
-            ['applications', 'limitations'],
-            ['related_work'],
+            ['summary'],
         ]
 
         layout_order = []
@@ -400,13 +395,10 @@ if uploaded_files:
             if remaining_components_sorted:
                  layout_order.append(remaining_components_sorted)  # Add them as a single row, sorted alphabetically
 
-
-        # Create expandable sections for each file
-        for file_index, current_file in enumerate(uploaded_files):
-            file_name = current_file.name
-
+        # Create expandable sections for each PDF
+        for file_index, pdf_link in enumerate(pdf_links):
             # Create an expander for each file, styled by CSS
-            with st.expander(f"📄 {file_name}", expanded=True):
+            with st.expander(f"📄 {pdf_link}", expanded=True):
                 status_ph = st.empty()
                 status_ph.info("Queued for processing...")
 
@@ -437,22 +429,22 @@ if uploaded_files:
                                     component_phs_dict[comp_key] = st.empty()
                                     component_content_dict[comp_key] = ""
 
-                st.session_state.file_placeholders[file_name] = {
+                st.session_state.file_placeholders[pdf_link] = {
                     'status': status_ph,
                     'components': component_phs_dict
                 }
-                st.session_state.component_content[file_name] = component_content_dict
+                st.session_state.component_content[pdf_link] = component_content_dict
 
         try:
-            extraction_results = process_uploaded_files(uploaded_files)
+            # Process PDF links instead of uploaded files
+            extraction_results = process_pdf_links(pdf_links)
         except Exception as e:
-            st.error(f"Critical error during initial file processing: {e}")
-            logger.error(f"Error during process_uploaded_files: {e}", exc_info=True)
+            st.error(f"Critical error during initial PDF processing: {e}")
+            logger.error(f"Error during process_pdf_links: {e}", exc_info=True)
             st.session_state.tasks_running = 0
-            st.stop()  # Stop execution if initial processing fails
+            st.stop()
 
-        process_executor = ThreadPoolExecutor(
-            max_workers=min(8, len(uploaded_files)))  # Limit concurrent file processing tasks
+        process_executor = ThreadPoolExecutor(max_workers=min(8, len(pdf_links)))
         submitted_files = set()
 
         for result_data in extraction_results:
@@ -460,8 +452,7 @@ if uploaded_files:
             if filename and filename in st.session_state.file_placeholders:
                 process_executor.submit(process_file_task, result_data, update_queue)
                 submitted_files.add(filename)
-                st.session_state.file_placeholders[filename]['status'].info(
-                    f"⏳ Processing: {filename}...")  # Styled by CSS
+                st.session_state.file_placeholders[filename]['status'].info(f"⏳ Processing: {filename}...")
             else:
                 logger.warning(f"Filename {filename} from extraction_results not found in placeholders or is None.")
                 st.session_state.tasks_running -= 1  # Decrement if a file can't be processed
@@ -512,7 +503,6 @@ if uploaded_files:
                                 final_content += "\n\n"
                             final_content += f"*{final_message}*"
                         file_placeholders['components'][comp_key].markdown(final_content)
-
 
                 elif msg_type == 'comp_error':
                     _, _, comp_key, error_msg = msg
@@ -589,3 +579,7 @@ if uploaded_files:
 
         st.session_state.start_time = None
         process_executor.shutdown(wait=False)
+
+else:
+    # Show message when no PDFs are available
+    st.info("👈 Please upload PDF files or provide PDF URLs using the sidebar to get started.")
