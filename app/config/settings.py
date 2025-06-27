@@ -28,3 +28,5 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
 COHERERANK_TOPN = int(os.getenv("COHERERANK_TOPN", "100"))
 VECTOSTORE_TOPK = int(os.getenv("VECTOSTORE_TOPK", "100"))
+
+

@@ -1,18 +1,24 @@
+import os
+import urllib.parse
+import pandas as pd
 import streamlit as st
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
 import uuid
-from streaming_generator import clear_upload_directory, setup_retrieval_system, process_uploaded_files
+import streamlit.components.v1 as components
+from streaming_generator import clear_upload_directory, process_pdf_links
 from app.summarization.summarizer import DocumentSummarizer
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(threadName)s:%(lineno)d] - %(message)s')
+# --- Basic Setup ---
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - [%(threadName)s:%(lineno)d] - %(message)s')
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="Aya Insight - AI-Powered Scientific Summarization", page_icon="📄", layout="wide")
+st.set_page_config(page_title="AI-Powered Scientific Summarization", layout="wide")
 
-# --- CUSTOM CSS ---
+
 custom_css = """
 <style>
     /* --- Overall Font & Body --- */
@@ -24,42 +30,6 @@ custom_css = """
     .main .block-container { /* Targets the main content area */
         padding-top: 2rem; /* Add some space at the top */
     }
-
-    /* --- Page Title (st.title) --- */
-    h1[data-testid="stTitle"] {
-        font-size: 2.2rem !important; /* Slightly reduced title size */
-        font-weight: 700 !important;
-        color: #1E88E5; /* A nice, vibrant blue */
-        text-align: center;
-        margin-bottom: 1.5rem;
-        letter-spacing: -0.5px;
-    }
-
-    /* --- Sidebar Styling --- */
-    [data-testid="stSidebarUserContent"] {
-        padding-top: 1rem;
-    }
-    [data-testid="stSidebarUserContent"] .stMarkdown h3, /* For your sidebar subheader */
-    [data-testid="stSidebarUserContent"] h3 {
-        font-size: 1.25rem !important;
-        color: #005A9C; /* Darker blue for sidebar title */
-        font-weight: 600;
-    }
-    [data-testid="stSidebarUserContent"] .stButton>button {
-        font-size: 0.9rem;
-        border-radius: 6px;
-        border: 1px solid #007bff;
-        padding: 0.4rem 0.8rem;
-    }
-    [data-testid="stSidebarUserContent"] .stButton>button:hover {
-        background-color: #007bff;
-        color: white;
-    }
-    [data-testid="stSidebarUserContent"] .stFileUploader label {
-        font-size: 0.95rem;
-        font-weight: 500;
-    }
-
 
     /* --- Markdown Content Styling --- */
     .stMarkdown {
@@ -98,70 +68,11 @@ custom_css = """
         font-weight: 600;
     }
 
-    /* --- Expander Styling --- */
-    .stExpander {
-        border: 1px solid #ddd !important;
-        border-radius: 8px !important;
-        margin-bottom: 1rem !important;
-        background-color: #fdfdfd; /* Slightly off-white */
-    }
-    .stExpander summary {
-        font-size: 1.1rem !important; /* Title of the expander */
-        font-weight: 600 !important;
-        color: #334E68; /* A muted, professional blue */
-        padding: 0.6rem 0.8rem !important;
-        border-radius: 8px 8px 0 0; /* Match top corners */
-    }
-    .stExpander summary:hover {
-        background-color: #f0f4f8;
-    }
-    .stExpander div[data-testid="stExpanderDetails"] {
-        padding: 0.5rem 1rem 1rem 1rem; /* Padding inside the expander */
-    }
-
-
-    /* --- Placeholders & Info/Status Boxes --- */
-    .stAlert { /* Targets st.info, st.success, st.warning, st.error */
-        font-size: 0.88rem;
-        padding: 0.75rem;
-        border-radius: 6px;
-        border-width: 1px;
-        border-left-width: 5px;
-    }
-    div[data-testid="stInfo"] {
-        border-left-color: #17a2b8; /* Bootstrap info color */
-        background-color: #e8f7f9;
-    }
-    div[data-testid="stSuccess"] {
-        border-left-color: #28a745; /* Bootstrap success color */
-        background-color: #eaf6eb;
-    }
-    div[data-testid="stWarning"] {
-        border-left-color: #ffc107; /* Bootstrap warning color */
-        background-color: #fff8e6;
-    }
-    div[data-testid="stError"] {
-        border-left-color: #dc3545; /* Bootstrap error color */
-        background-color: #fdecea;
-    }
-
-    /* Text within st.empty() before content loads, or generic st.text */
-    [data-testid="stText"] {
-        font-size: 0.88rem;
-        color: #555;
-        font-style: italic;
-    }
-
     /* Progress/Timer text */
     .stApp [data-testid="stText"], .stApp [data-testid="stMarkdownContainer"] p:has(> code) { /* Targeting timer */
         font-size: 0.9rem;
         color: #007BFF; /* Make timer text blue */
         font-weight: 500;
-    }
-
-    /* Spinner color change (More advanced, might need JS or specific Streamlit features if this doesn't work well) */
-    .stSpinner > div {
-        border-top-color: #007BFF !important; /* Spinner color */
     }
 
     /* REVISED: Styling for the custom blinking cursor span, directly controlled by Python */
@@ -175,21 +86,99 @@ custom_css = """
         from, to { opacity: 1; }
         50% { opacity: 0; }
     }
-
-    /* --- Caption --- */
-    .stCaption {
-        font-size: 0.8rem;
-        color: #777;
-        text-align: center;
-        margin-top: 2rem;
-    }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
-# --- END CUSTOM CSS ---
+# --- Helper Functions for Status Display ---
+
+def get_status_display(filename):
+    """Get status display text for a file."""
+    if filename not in st.session_state.file_status_tracking:
+        return "Pending"
+
+    status = st.session_state.file_status_tracking[filename]
+    if status == "processing":
+        return "Processing"
+    elif status == "success":
+        return "Complete"
+    elif status == "error":
+        return "Error"
+    elif status == "warning":
+        return "Warning"
+    else:
+        return "Pending"
 
 
-# Initialize session state variables
+# --- UI and Data Handling ---
+
+def create_navigation_table_dataframe(pdf_links):
+    """Create a navigation dataframe with a conditional download link for each summary."""
+    if not pdf_links:
+        return None
+
+    table_data = []
+    for i, filename in enumerate(pdf_links):
+        # Extract a clean display name for the document
+        if "https" in filename:
+            display_name = filename
+        else:
+            display_name = filename.split("/")[-1].split("_")[-1] if "_" in filename else filename.split("/")[-1]
+
+        status_text = get_status_display(display_name)
+        summary_link = f'<a href="#expander_{i}" target="_self">Go to Summary</a>'
+        download_link = "Pending..."
+        current_status = st.session_state.file_status_tracking.get(display_name)
+
+        # Show download link only if processing is complete
+        if current_status in ["success", "warning"]:
+            summary_content = generate_download_content(display_name)
+            encoded_content = urllib.parse.quote(summary_content)
+            safe_filename = display_name.replace('.pdf', '').replace(' ', '_')
+            download_filename = f"{safe_filename}_summary.txt"
+            download_link = f'<a href="data:text/plain;charset=utf-8,{encoded_content}" download="{download_filename}" target="_blank">Download Summary</a>'
+
+        elif current_status == "error":
+            download_link = "<i>Failed</i>"
+
+        table_data.append({
+            "Document Name": display_name,
+            "Status": status_text,
+            "Link": summary_link,
+            "Download": download_link
+        })
+
+    return pd.DataFrame(table_data)
+
+
+def update_navigation_table(pdf_links):
+    """Update the navigation table by rendering it as HTML."""
+    if st.session_state.navigation_table_placeholder:
+        df = create_navigation_table_dataframe(pdf_links)
+        if df is not None and not df.empty:
+            # Render dataframe as a simple HTML table to allow for clickable links
+            html_table = df.to_html(
+                escape=False,
+                index=False,
+                justify='center'
+            )
+            st.session_state.navigation_table_placeholder.markdown(
+                html_table,
+                unsafe_allow_html=True
+            )
+        else:
+            st.session_state.navigation_table_placeholder.empty()
+
+
+def generate_download_content(display_name):
+    """Generates a single string with all summary content for download."""
+    content = [f"Summary for: {display_name}\n\n"]
+    component_content = st.session_state.component_content.get(display_name, {})
+    text = component_content.get('summary', "*No content generated for this section.*")
+    content.append(f"--- Summary ---\n\n{text}\n\n")
+    return "".join(content)
+
+
+# --- Initialize Session State ---
 if 'file_placeholders' not in st.session_state:
     st.session_state.file_placeholders = {}
 if 'results' not in st.session_state:
@@ -201,59 +190,87 @@ if 'tasks_running' not in st.session_state:
 if 'start_time' not in st.session_state:
     st.session_state.start_time = None
 if 'timer_placeholder' not in st.session_state:
-    st.session_state.timer_placeholder = None  # Will be created when needed
+    st.session_state.timer_placeholder = None
+if 'file_status_tracking' not in st.session_state:
+    st.session_state.file_status_tracking = {}
+if 'navigation_table_placeholder' not in st.session_state:
+    st.session_state.navigation_table_placeholder = None
 
+
+# --- Sidebar UI ---
 with st.sidebar:
-    st.markdown("<h3>🗂️ Aya Multi-File Summary Tool 🚀</h3>", unsafe_allow_html=True)
+    st.markdown("<h2>Multi-File Summary Tool</h2>", unsafe_allow_html=True)
+    input_method = st.radio("Choose input method:", ["Upload Files", "PDF URLs"], horizontal=True)
+    pdf_links = []
 
-    uploaded_files = st.file_uploader("Choose PDF files to analyze:", type="pdf", accept_multiple_files=True)
+    if input_method == "Upload Files":
+        uploaded_files = st.file_uploader("Choose PDF files to analyze:", type="pdf", accept_multiple_files=True)
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                try:
+                    temp_dir = "temp_uploads"
+                    os.makedirs(temp_dir, exist_ok=True)
+                    timestamp = int(time.time() * 1000)
+                    temp_filename = f"{timestamp}_{uploaded_file.name}"
+                    temp_path = os.path.join(temp_dir, temp_filename)
+                    with open(temp_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    pdf_links.append(temp_path)
+                except Exception as e:
+                    st.error(f"Error processing {uploaded_file.name}: {e}")
+    else:
+        pdf_links = []
+        st.markdown("**Enter PDF URLs (one per line):**")
+        url_input = st.text_area(
+            "PDF URLs:",
+            height=150,
+            placeholder="https://arxiv.org/pdf/1706.03762\nhttps://aclanthology.org/D19-3019.pdf\n...",
+            help="Enter each PDF URL on a new line"
+        )
+        urls = [url.strip() for url in url_input.strip().split('\n') if url.strip()]
+        for url in urls:
+            pdf_links.append(url)
 
-    if st.button("🧹 Clear Upload Cache", help="Removes temporarily saved uploaded files and resets the app state."):
+    if st.button("Clear Upload Cache", help="Removes temporarily saved uploaded files and resets the app state."):
         try:
             clear_upload_directory()
             st.success("Temporary upload directory cleared.")
-            st.session_state.file_placeholders = {}
-            st.session_state.results = {}
-            st.session_state.component_content = {}
-            st.session_state.tasks_running = 0
-            st.session_state.start_time = None
-            if st.session_state.timer_placeholder:
-                st.session_state.timer_placeholder.empty()
-            st.session_state.timer_placeholder = None
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
             st.rerun()
         except Exception as e:
             st.error(f"Error clearing directory: {e}")
             logger.error(f"Error during cache clear: {e}", exc_info=True)
 
-    summarize_button = st.button("✨ Summarize All Files",
+    st.session_state.pdf_links = pdf_links
+
+    summarize_button = st.button("Summarize All Files",
                                  type="primary",
                                  key="summarize_all",
-                                 disabled=st.session_state.tasks_running > 0 or not uploaded_files,
+                                 disabled=st.session_state.tasks_running > 0 or not pdf_links,
                                  use_container_width=True)
 
-# Main content area
-st.title("📄✨ Aya Insight - AI-Powered Scientific Summarization")
+# --- Main Content Area ---
 
-# Main app description - using more markdown features for better look
+st.title("AI-Powered Scientific Summarization")
 st.markdown(
     """
-    Welcome to **Aya Insight**! Your intelligent assistant for dissecting and understanding PDF documents.
-
-    - 📥 **Upload your documents** using the panel on the left.
-    - 📌 Supports **PDF** format for analysis.
-
-    🧠 Click on **'Summarize All Files'** and Aya will generate:
-    - `🔎` **Section-wise Insights**: Detailed breakdowns of document segments.
-    - `📝` **Concise Summaries**: Quick understanding of the core content.
-    - `📌` **Key Takeaways**: The most crucial points highlighted.
-
-    ⚡ _Perfect for accelerating research, reviewing reports, or mastering bulk document analysis!_
+    Welcome! This tool provides an intelligent assistant for dissecting and understanding PDF documents.
     """
 )
 
-if st.session_state.timer_placeholder is None:
-    st.session_state.timer_placeholder = st.empty()
+navigation_container = st.container()
+timer_container = st.container()
 
+if st.session_state.navigation_table_placeholder is None:
+    with navigation_container:
+        st.session_state.navigation_table_placeholder = st.empty()
+if st.session_state.timer_placeholder is None:
+    with timer_container:
+        st.session_state.timer_placeholder = st.empty()
+
+
+# --- Backend Processing Functions ---
 
 def get_and_summarize_component_task(comp, update_queue):
     component_key = comp['comp_name']
@@ -261,328 +278,177 @@ def get_and_summarize_component_task(comp, update_queue):
     filename = comp['filename']
     try:
         chunk_count = 0
-        if component_key == 'resource_link':  # Special handling for non-LLM stream
-            for event in stream:
-                update_queue.put(('chunk', filename, component_key, str(event)))
+        for event in stream:
+            if event.choices[0].delta.content:
+                delta_text = event.choices[0].delta.content
+                update_queue.put(('chunk', filename, component_key, delta_text))
                 chunk_count += 1
+        if chunk_count == 0:
+            update_queue.put(('comp_done', filename, component_key, "*No specific content generated for this section.*"))
         else:
-            # Handle regular component streams (LLM responses)
-            for event in stream:
-                if event.type == "content-delta":
-                    delta_text = event.delta.message.content.text
-                    update_queue.put(('chunk', filename, component_key, delta_text))
-                    chunk_count += 1
-
-        if chunk_count == 0:  # If the stream was empty or yielded no actual content
-            update_queue.put(
-                ('comp_done', filename, component_key, "*No specific content generated for this section.*"))
-        else:
-            update_queue.put(
-                ('comp_done', filename, component_key, None))  # None indicates success, content already streamed
-
+            update_queue.put(('comp_done', filename, component_key, None))
         logger.info(f"[{filename}-{component_key}] Finished processing stream. Chunks: {chunk_count}")
-
     except Exception as e:
         logger.error(f"Error in component task for {filename}-{component_key}: {e}", exc_info=True)
-        error_msg = f"_Error processing {component_key.replace('_', ' ').title()}: {str(e)[:100]}..._"
+        error_msg = f"Error processing {component_key.replace('_', ' ').title()}: {str(e)[:100]}..."
         update_queue.put(('comp_error', filename, component_key, error_msg))
 
 
 def process_file_task(doc_data, update_queue):
     filename = doc_data.get('filename', f'unknown_file_{uuid.uuid4()}')
-
     try:
         logger.info(f"[{filename}] Starting process_file_task.")
-        update_queue.put(('status', filename, None, "🔄 Initializing analysis engine..."))
-
-        doc_data, retriever = setup_retrieval_system(doc_data)
-        summarizer = DocumentSummarizer(retriever)
-
-        update_queue.put(('status', filename, None, "⚙️ Generating content components..."))
-        components = summarizer.generate_summarizer_components(
-            filename=doc_data.get("filename"),
-            language=doc_data.get("language", "en"),
-            chunk_size=doc_data.get("chunk_size", 1000),
-            document_text=doc_data.get("text", '')[:1000]
-        )
-
-        component_futures = {}
-        total_components = len(getattr(summarizer, 'COMPONENT_TYPES', components))
-
-        with ThreadPoolExecutor(max_workers=min(16, total_components + 1)) as component_executor:
-            for comp in components:
-                comp_name_for_log = comp.get('comp_name', 'unknown_component')
-                logger.info(f"[{filename}] Submitting task for component: {comp_name_for_log}")
-                future = component_executor.submit(
-                    get_and_summarize_component_task,
-                    comp, update_queue
-                )
-                component_futures[future] = comp_name_for_log
-
-            processed_count = 0
-            for future in as_completed(component_futures):
-                comp_key = component_futures[future]
-                processed_count += 1
-                try:
-                    future.result()  # Check for exceptions during component task execution
-                except Exception as exc:
-                    logger.error(f'[{filename}-{comp_key}] Exception in component task execution: {exc}', exc_info=True)
-                    update_queue.put(('comp_error', filename, comp_key,
-                                      f"_Critical error in {comp_key.replace('_', ' ').title()}: {str(exc)[:100]}..._"))
-
-        logger.info(f"[{filename}] All ({processed_count}/{total_components}) component tasks completed submission and processing.")
-        update_queue.put(('file_done', filename))  # Signal that this file's processing (all components) is done
-
+        update_queue.put(('status', filename, None, "Initializing analysis engine..."))
+        summarizer = DocumentSummarizer()
+        update_queue.put(('status', filename, None, "Generating content components..."))
+        summarizer_iterator = summarizer._process_component(comp_data=doc_data)
+        get_and_summarize_component_task(summarizer_iterator, update_queue)
+        logger.info(f"[{filename}] Summary tasks completed.")
+        update_queue.put(('file_done', filename))
     except Exception as e:
         logger.error(f"[{filename}] Critical error in process_file_task: {e}", exc_info=True)
         update_queue.put(('file_error', filename, f"Critical processing error: {str(e)[:150]}..."))
 
 
-if uploaded_files:
+# --- Main Application Logic ---
+pdf_links = st.session_state.get('pdf_links', [])
+
+if pdf_links:
+    for filename in pdf_links:
+        display_name = filename.split("/")[-1].split("_")[-1] if "https" not in filename else filename
+        if display_name not in st.session_state.file_status_tracking:
+            st.session_state.file_status_tracking[display_name] = "pending"
+
+    update_navigation_table(pdf_links)
+
     if not summarize_button and not st.session_state.tasks_running:
-        st.info(f"Found {len(uploaded_files)} PDF file(s). Click 'Summarize All Files' in the sidebar to process.")
+        st.info("Click 'Summarize All Files' in the sidebar to process.")
 
     if summarize_button:
-        st.markdown("---")
-        st.markdown("## Processing Document Insights...")
-
         st.session_state.start_time = time.time()
-        if st.session_state.timer_placeholder is None:
-            st.session_state.timer_placeholder = st.empty()
-
         st.session_state.results = {}
         st.session_state.file_placeholders = {}
         st.session_state.component_content = {}
-        st.session_state.tasks_running = len(uploaded_files)
+        st.session_state.tasks_running = len(pdf_links)
 
+        for filename in pdf_links:
+            display_name = filename.split("/")[-1].split("_")[-1] if "https" not in filename else filename
+            st.session_state.file_status_tracking[display_name] = "processing"
+
+        update_navigation_table(pdf_links)
         update_queue = Queue()
-        component_info = {
-            'resource_link': '🔗 Original Research Link',
-            'basic_info': "ℹ️ Basic Paper Information",
-            'abstract': "📝 Abstract Summary",
-            'methods': "🔬 Methodology Overview",
-            'technical': "⚙️ Technical Details & Concepts",
-            'equations': "🧮 Key Equations & Formulas",
-            'results': "📊 Results & Findings",
-            'limitations': "🚧 Limitations & Future Work",
-            'related_work': "📚 Related Work",
-            'applications': "💡 Practical Applications & Use Cases",
-        }
+        component_info = {'summary': "Summary"}
 
-        try:
-            temp_summarizer = DocumentSummarizer(retriever=None)
-            if hasattr(temp_summarizer, 'COMPONENT_TYPES') and isinstance(temp_summarizer.COMPONENT_TYPES, dict):
-                component_info = temp_summarizer.COMPONENT_TYPES
-                logger.info(f"Dynamically loaded component types: {list(component_info.keys())}")
-            else:
-                logger.warning("DocumentSummarizer does not have a 'COMPONENT_TYPES' dict. Using default.")
-        except Exception as e:
-            st.warning(f"Could not pre-fetch dynamic component structure: {e}. Using defaults.")
-            logger.warning(f"Failed to get dynamic component info: {e}", exc_info=True)
-
-        default_layout_order = [
-            ['resource_link'],
-            ['basic_info', 'methods'],
-            ['abstract', 'technical'],
-            ['equations'],
-            ['results'],
-            ['applications', 'limitations'],
-            ['related_work'],
-        ]
-
-        layout_order = []
-        all_available_components = set(component_info.keys())
-        used_components = set()
-
-        for row_template in default_layout_order:
-            current_row = [comp_key for comp_key in row_template if comp_key in all_available_components]
-            if current_row:
-                layout_order.append(current_row)
-                for comp_key in current_row:
-                    used_components.add(comp_key)
-
-        # Add any remaining components that weren't in the default layout
-        if all_available_components - used_components:
-            remaining_components_sorted = sorted(list(all_available_components - used_components))
-            if remaining_components_sorted:
-                 layout_order.append(remaining_components_sorted)  # Add them as a single row, sorted alphabetically
-
-
-        # Create expandable sections for each file
-        for file_index, current_file in enumerate(uploaded_files):
-            file_name = current_file.name
-
-            # Create an expander for each file, styled by CSS
-            with st.expander(f"📄 {file_name}", expanded=True):
+        for file_index, filename in enumerate(pdf_links):
+            display_name = filename.split("/")[-1].split("_")[-1] if "https" not in filename else filename
+            st.markdown(f'<div id="expander_{file_index}"></div>', unsafe_allow_html=True)
+            with st.expander(f"Document: {display_name}", expanded=True):
                 status_ph = st.empty()
                 status_ph.info("Queued for processing...")
-
                 component_phs_dict = {}
                 component_content_dict = {}
-
-                if not layout_order and component_info:
-                    st.markdown("### Summary Sections")
-                    for comp_key in component_info.keys():
-                        comp_name = component_info.get(comp_key, comp_key.replace('_', ' ').title())
-                        st.markdown(f"#### {comp_name}")
-                        component_phs_dict[comp_key] = st.empty()
-                        component_content_dict[comp_key] = ""
-                elif not component_info:
-                    st.markdown("### Processing Output")
-                    component_phs_dict['summary'] = st.empty()  # Generic placeholder
+                with st.container(border=True):
+                    st.markdown(f"### {component_info['summary']}")
+                    component_phs_dict['summary'] = st.empty()
                     component_content_dict['summary'] = ""
-                else:
-                    # Render based on the dynamic layout_order
-                    for row in layout_order:
-                        if not row: continue  # Skip empty rows
-                        cols = st.columns(len(row))
-                        for i, comp_key in enumerate(row):
-                            with cols[i]:
-                                with st.container(border=True):
-                                    comp_name = component_info.get(comp_key, comp_key.replace('_', ' ').title())
-                                    st.markdown(f"### {comp_name}")
-                                    component_phs_dict[comp_key] = st.empty()
-                                    component_content_dict[comp_key] = ""
-
-                st.session_state.file_placeholders[file_name] = {
-                    'status': status_ph,
-                    'components': component_phs_dict
-                }
-                st.session_state.component_content[file_name] = component_content_dict
+                st.session_state.file_placeholders[display_name] = {'status': status_ph, 'components': component_phs_dict}
+                st.session_state.component_content[display_name] = component_content_dict
 
         try:
-            extraction_results = process_uploaded_files(uploaded_files)
+            extraction_results = process_pdf_links(pdf_links)
         except Exception as e:
-            st.error(f"Critical error during initial file processing: {e}")
-            logger.error(f"Error during process_uploaded_files: {e}", exc_info=True)
+            st.error(f"Critical error during initial PDF processing: {e}")
+            logger.error(f"Error during process_pdf_links: {e}", exc_info=True)
             st.session_state.tasks_running = 0
-            st.stop()  # Stop execution if initial processing fails
+            st.stop()
 
-        process_executor = ThreadPoolExecutor(
-            max_workers=min(8, len(uploaded_files)))  # Limit concurrent file processing tasks
+        process_executor = ThreadPoolExecutor(max_workers=min(8, len(pdf_links)))
         submitted_files = set()
-
         for result_data in extraction_results:
             filename = result_data.get('filename')
-            if filename and filename in st.session_state.file_placeholders:
+            display_name = filename.split("/")[-1].split("_")[-1] if "https" not in filename else filename
+            if display_name and display_name in st.session_state.file_placeholders:
                 process_executor.submit(process_file_task, result_data, update_queue)
-                submitted_files.add(filename)
-                st.session_state.file_placeholders[filename]['status'].info(
-                    f"⏳ Processing: {filename}...")  # Styled by CSS
+                submitted_files.add(display_name)
+                st.session_state.file_placeholders[display_name]['status'].info(f"Processing: {display_name}...")
             else:
-                logger.warning(f"Filename {filename} from extraction_results not found in placeholders or is None.")
-                st.session_state.tasks_running -= 1  # Decrement if a file can't be processed
+                logger.warning(f"Filename {display_name} from extraction not found in placeholders.")
+                st.session_state.tasks_running -= 1
 
         files_done_processing = set()
-        # Store component status for each file to determine overall file status
         component_statuses = {fname: {} for fname in submitted_files}
-        active_spinners_markers = {fname: {ckey: True for ckey in st.session_state.component_content[fname]} for fname in submitted_files}
+        last_table_update = 0
+        table_update_interval = 2.0
 
         while st.session_state.tasks_running > 0:
+            current_time = time.time()
             if st.session_state.start_time is not None and st.session_state.timer_placeholder:
-                elapsed_time = time.time() - st.session_state.start_time
-                st.session_state.timer_placeholder.markdown(
-                    f"⏳ **Overall Processing Time:** `{elapsed_time:.2f} seconds`")
-
+                elapsed_time = current_time - st.session_state.start_time
+                with timer_container:
+                    st.session_state.timer_placeholder.markdown(f"**Overall Processing Time:** `{elapsed_time:.2f} seconds`")
             try:
-                msg = update_queue.get(timeout=0.1)  # Timeout to allow UI updates and time checks
-                msg_type = msg[0]
-                filename = msg[1]  # Filename is always the second element
+                msg = update_queue.get(timeout=0.1)
+                msg_type, filename, *payload = msg
+                display_name = filename.split("/")[-1].split("_")[-1] if "https" not in filename else filename
 
-                if filename not in st.session_state.file_placeholders:
-                    logger.warning(f"Received message for unknown/already-cleared file: {filename}. Type: {msg_type}")
+                if display_name not in st.session_state.file_placeholders:
+                    logger.warning(f"Received message for unknown file: {display_name}.")
                     update_queue.task_done()
                     continue
 
-                file_placeholders = st.session_state.file_placeholders[filename]
-                file_component_content = st.session_state.component_content[filename]
+                file_placeholders = st.session_state.file_placeholders[display_name]
+                file_component_content = st.session_state.component_content[display_name]
+                table_needs_update = False
 
                 if msg_type == 'chunk':
-                    _, _, comp_key, text_delta = msg
+                    comp_key, text_delta = payload
                     if comp_key in file_component_content:
                         file_component_content[comp_key] += text_delta
-                        display_text = file_component_content[comp_key] + '<span class="blinking-cursor">▌</span>'
-                        if comp_key in file_placeholders['components']:
-                            file_placeholders['components'][comp_key].markdown(
-                                display_text, unsafe_allow_html=True
-                            )
-
+                        display_text = file_component_content[comp_key] + '▌'
+                        file_placeholders['components'][comp_key].markdown(display_text, unsafe_allow_html=True)
                 elif msg_type == 'comp_done':
-                    _, _, comp_key, final_message = msg
-                    component_statuses.setdefault(filename, {})[comp_key] = 'done'
-                    active_spinners_markers.get(filename, {}).pop(comp_key, None)  # Remove marker
-
-                    if comp_key in file_placeholders['components']:
-                        final_content = file_component_content.get(comp_key, "")
-                        if final_message:
-                            if final_content and not final_content.endswith("\n\n"):
-                                final_content += "\n\n"
-                            final_content += f"*{final_message}*"
-                        file_placeholders['components'][comp_key].markdown(final_content)
-
-
+                    comp_key, final_message = payload
+                    component_statuses.setdefault(display_name, {})[comp_key] = 'done'
+                    final_content = file_component_content.get(comp_key, "")
+                    if final_message:
+                        final_content += f"\n\n*{final_message}*"
+                    file_placeholders['components'][comp_key].markdown(final_content)
                 elif msg_type == 'comp_error':
-                    _, _, comp_key, error_msg = msg
-                    component_statuses.setdefault(filename, {})[comp_key] = 'error'
-                    active_spinners_markers.get(filename, {}).pop(comp_key, None)  # Remove marker
-
-                    if comp_key in file_placeholders['components']:
-                        file_placeholders['components'][comp_key].error(f"⚠️ {error_msg}")
-
-                elif msg_type == 'status':  # General status update for the file
-                    _, _, _, status_msg = msg  # comp_key is None for general file status
-                    file_placeholders['status'].info(f"⏳ {status_msg}")  # Styled by CSS
-
+                    comp_key, error_msg = payload
+                    component_statuses.setdefault(display_name, {})[comp_key] = 'error'
+                    file_placeholders['components'][comp_key].error(error_msg)
+                elif msg_type == 'status':
+                    _, status_msg = payload
+                    file_placeholders['status'].info(status_msg)
                 elif msg_type == 'file_done':
-                    if filename not in files_done_processing:
-                        files_done_processing.add(filename)
+                    if display_name not in files_done_processing:
+                        files_done_processing.add(display_name)
                         st.session_state.tasks_running -= 1
-
-                        final_file_status = 'success'  # Assume success initially
-                        file_comp_statuses = component_statuses.get(filename, {})
-
-                        if not file_comp_statuses:
-                            if any(v == 'error' for v in file_comp_statuses.values()):
-                                final_file_status = 'error'
-                            else:
-                                final_file_status = 'warning_nodata'
-                        elif any(v == 'error' for v in file_comp_statuses.values()):
+                        final_file_status = 'success'
+                        if any(v == 'error' for v in component_statuses.get(display_name, {}).values()):
                             final_file_status = 'error'
-                        elif not any(file_component_content.get(k, "").strip() and file_component_content.get(k, "").strip() != "*No specific content generated for this section.*" for k in file_comp_statuses if file_comp_statuses.get(k) == 'done'):
-                            final_file_status = 'warning_nodata'
-
                         status_ph = file_placeholders['status']
                         if final_file_status == 'success':
-                            status_ph.success(f"✅ Summarization Complete for {filename}!")
-                            st.session_state.results[filename] = True
-                        elif final_file_status == 'warning_nodata':
-                            status_ph.warning(f"⚠️ {filename} processed, but some sections have limited or no content.")
-                            st.session_state.results[filename] = "warning"
-                        else:  # 'error'
-                            status_ph.error(f"❌ {filename} completed with errors in some sections.")
-                            st.session_state.results[filename] = False
-
-                        # Ensure all component spinners are removed for this file
-                        for comp_key_iter, placeholder in file_placeholders['components'].items():
-                            if active_spinners_markers.get(filename, {}).get(
-                                    comp_key_iter):  # If spinner was still active
-                                final_c_content = file_component_content.get(comp_key_iter, "")
-                                placeholder.markdown(final_c_content)  # Update with final content
-
+                            status_ph.success(f"Summarization Complete for {display_name}!")
+                            st.session_state.file_status_tracking[display_name] = "success"
+                        else:
+                            status_ph.error(f"Completed with errors for {display_name}.")
+                            st.session_state.file_status_tracking[display_name] = "error"
+                        table_needs_update = True
                 elif msg_type == 'file_error':
-                    _, critical_error_msg = msg
-                    if filename not in files_done_processing:
-                        files_done_processing.add(filename)
+                    critical_error_msg, = payload
+                    if display_name not in files_done_processing:
+                        files_done_processing.add(display_name)
                         st.session_state.tasks_running -= 1
-                        file_placeholders['status'].error(
-                            f"❌ Critical Error processing {filename}: {critical_error_msg}")
-                        st.session_state.results[filename] = False
-                        for comp_key_iter, placeholder in file_placeholders['components'].items():
-                            if active_spinners_markers.get(filename, {}).get(comp_key_iter):
-                                placeholder.markdown("_Processing halted due to critical file error._")
+                        file_placeholders['status'].error(f"Critical Error for {display_name}: {critical_error_msg}")
+                        st.session_state.file_status_tracking[display_name] = "error"
+                        table_needs_update = True
 
+                if table_needs_update and (current_time - last_table_update >= table_update_interval):
+                    with navigation_container:
+                        update_navigation_table(pdf_links)
+                    last_table_update = current_time
                 update_queue.task_done()
-
             except Empty:
                 pass
             except Exception as loop_exc:
@@ -592,13 +458,20 @@ if uploaded_files:
 
         if st.session_state.start_time is not None and st.session_state.timer_placeholder:
             final_elapsed_time = time.time() - st.session_state.start_time
-            st.session_state.timer_placeholder.success(f"🎉 All processing finished in {final_elapsed_time:.2f} seconds!")
-
+            with timer_container:
+                st.session_state.timer_placeholder.success(f"All processing finished in {final_elapsed_time:.2f} seconds!")
+        with navigation_container:
+            update_navigation_table(pdf_links)
         st.session_state.start_time = None
         process_executor.shutdown(wait=False)
+
+else:
+    st.info("Please upload PDF files or provide PDF URLs using the sidebar to get started.")
+
 
 if __name__ == "__main__":
     if "__streamlitmagic__" not in locals():
         from streamlit.web.bootstrap import run
 
         run(__file__, False, [], {})
+
