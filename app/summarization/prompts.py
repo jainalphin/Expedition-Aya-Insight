@@ -6,8 +6,7 @@ comprehensive_research_paper_prompt = """
 # Research Paper Summarization: Comprehensive Analysis Guide
 
 **Note: Always return the summary in the same language as the original paper.**
-
-Please analyze the provided research paper and generate a comprehensive summary covering all the following sections. If a specific detail cannot be found, provide an empty string (`""`) for that item or cell, do not use placeholder text.
+Please analyze the provided research paper and generate a comprehensive summary. **IMPORTANT: Only include sections and details where information is actually available in the paper. If a section has no relevant information, omit it entirely rather than using placeholders or empty entries.**
 
 ---
 
@@ -17,23 +16,23 @@ Generate a concise summary of the paper's essential metadata using the table bel
 
 | Information       | Details                          |
 |-------------------|----------------------------------|
-| **Title** | [Full title of the paper]        |
-| **Authors** | [Complete list of authors]       |
-| **Publication Venue** | [Journal/Conference, Year]   |
-| **Research Field**| [Primary domain or discipline]   |
-| **Keywords** | [Relevant terms and topics - use bullet points if multiple] |
+| **Title** | [Full title of the paper. Include only if research approach is clearly described]        |
+| **Authors** | [Complete list of authors]. Include only if research approach is clearly described       |
+| **Publication Venue** | [Journal/Conference, Year. Include only if research approach is clearly described]   |
+| **Research Field**| [Primary domain or discipline. Include only if research approach is clearly described]   |
+| **Keywords** | [Relevant terms and topics. Include only if research approach is clearly described] |
 
 ---
 
 ### 2. Abstract Summary
 
-Break down the paper's abstract into its fundamental components:
+Break down the paper's abstract into concise key points. **Only include bullet points where the information is actually present in the abstract:**
 
-* **Background:** [Brief context leading to the study]
-* **Problem:** [The specific issue the paper tackles]
-* **Methodology:** [Approach, methods, or techniques used]
-* **Key Findings:** [Main results or discoveries - use sub-bullets if needed]
-* **Conclusion:** [Primary takeaway or implication]
+* **Background:** [Brief context - 1 sentence max]
+* **Problem:** [Specific issue - 1 sentence max]
+* **Methodology:** [Main approach - 1 sentence max]
+* **Key Findings:** [Primary results - bullet points, 1 sentence each]
+* **Conclusion:** [Main takeaway - 1 sentence max]
 
 ---
 
@@ -41,17 +40,17 @@ Break down the paper's abstract into its fundamental components:
 
 Describe how the research was conducted:
 
-* **Study Design:** [e.g., Experimental, Simulation, Case Study, etc.]
+* **Study Design:** [e.g., Experimental, Simulation, Case Study, etc. Include only if research approach is clearly described]
 * **Dataset(s):**
-    * Source: [Where the data came from]
-    * Size: [Amount of data]
-    * Key Characteristics: [Important features or properties]
-    * Preprocessing: [Main steps taken to prepare data]
-* **Techniques/Models:** [Specific models, algorithms, or frameworks used - list key ones]
+    * Source: [Where the data came from. Include only if research approach is clearly described]
+    * Size: [Amount of data. Include only if research approach is clearly described]
+    * Key Characteristics: [Important features or properties.Include only if research approach is clearly described]
+    * Preprocessing: [Main steps taken to prepare data. Include only if research approach is clearly described]
+* **Techniques/Models:** [Specific models, algorithms, or frameworks used - list key ones. Include only if research approach is clearly described]
 * **Evaluation:**
-    * Metrics: [How performance/success was measured - list key metrics]
-    * Setup: [Briefly describe evaluation setup if notable]
-* **Tools & Software:** [Libraries, platforms, hardware specifics if critical]
+    * Metrics: [How performance/success was measured - list key metrics. Include only if research approach is clearly described]
+    * Setup: [Briefly describe evaluation setup if notable. Include only if research approach is clearly described]
+* **Tools & Software:** [Libraries, platforms, hardware specifics if critical. Include only if research approach is clearly described]
 
 ---
 
@@ -61,10 +60,10 @@ List and explain the paper's main outcomes and their importance:
 
 | Finding # | Description of Result         | Significance / Insight           |
 |-----------|-------------------------------|----------------------------------|
-| 1         | [What was observed/found?]    | [Why this result is important or novel?] |
+| 1         | [What was observed/found?]    | [Why this result is important or novel? ] |
 | 2         | [Another key result]          | [Its implication or contribution]  |
 | 3         | [Third main finding]          | [What we learn from this]        |
-| ...       | [Add more rows as needed]     | [Corresponding insight]          |
+| ...       | [Add more rows as needed]     | [Corresponding insight. Include only if research approach is clearly described]          |
 
 **Comparison to Prior Work:**
 * [Highlight how these results differ from or improve upon previous research.]
@@ -73,7 +72,7 @@ List and explain the paper's main outcomes and their importance:
 
 ---
 
-## 5. Technical Details
+### 5. Technical Details
 
 Provide a concise summary of the paper's specific technical aspects:
 
@@ -137,12 +136,12 @@ Detail the limitations encountered and suggested future directions:
 
 Explore potential real-world applications of the research findings:
 
-| Domain/Industry | Potential Use Case or Application   | Key Requirements or Dependencies        | Feasibility/Timeline |
-|-----------------|--------------------------------------|-------------------------------------|-------------------|
-| **[Domain 1]** | [How can the results/methods be used here?] | [What data, technology, or infrastructure is needed?] | [Short/Med/Long term]  |
-| **[Domain 2]** | [Another potential application area] | [Factors affecting feasibility or adoption] | [Short/Med/Long term]  |
-| **[Domain 3]** | [Innovative potential application] | [Challenges or conditions for implementation] | [Short/Med/Long term]  |
-| ...             | [Add more rows as needed]            | [Corresponding requirements]          | [Corresponding timeline]  |
+| Domain/Industry | Potential Use Case or Application   | Key Requirements or Dependencies        |
+|-----------------|--------------------------------------|-------------------------------------|
+| **[Domain 1]** | [How can the results/methods be used here?] | [What data, technology, or infrastructure is needed?] |
+| **[Domain 2]** | [Another potential application area] | [Factors affecting feasibility or adoption] |
+| **[Domain 3]** | [Innovative potential application] | [Challenges or conditions for implementation] |
+| ...             | [Add more rows as needed]            | [Corresponding requirements]          |
 
 **Most Promising Use Case:** [Briefly highlight the application with the highest potential impact or feasibility.]
 
