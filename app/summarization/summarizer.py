@@ -104,36 +104,6 @@ class DocumentSummarizer:
             logger.error(f"Document retrieval error for {filename}: {e}")
             return []
 
-    @traceable
-    def get_resource_link_stream(self, document_text: str) -> Iterator:
-        """
-        Generate a streaming response for finding the original research paper link.
-
-        Args:
-            document_text: Text content of the document
-
-        Returns:
-            Iterator that yields the research paper link
-
-        Raises:
-            NoRelevantContentError: If no document text is provided
-            DocumentProcessingError: If API call fails
-        """
-        if not document_text:
-            logger.error("Empty document content provided for resource link lookup")
-            raise NoRelevantContentError("No document content provided for resource link lookup")
-
-        try:
-            truncated_text = document_text[:1000]
-            yield self.openai_client.responses.create(
-                model=LLM_MODEL,
-                tools=[{"type": "web_search_preview", "search_context_size": "low"}],
-                input=f"Find the research paper link for this document: {truncated_text} Respond only with the link.",
-            ).output_text
-        except Exception as e:
-            logger.error(f"OpenAI API error in resource link lookup: {e}")
-            raise DocumentProcessingError(f"Failed to generate resource link: {str(e)}")
-
     def _create_error_component(self, filename: str, comp_name: str, error_message: str) -> Dict[str, Any]:
         """Create a component dictionary for error cases."""
         return {

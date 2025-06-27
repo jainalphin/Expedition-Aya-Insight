@@ -13,6 +13,10 @@ import cohere
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+
+from langsmith.wrappers import wrap_openai
+from openai import OpenAI
+
 from ..config.settings import CHUNK_SIZE, LLM_MODEL
 
 # Configure logging with a null handler by default
@@ -264,7 +268,6 @@ class DocumentExtractor:
                 temperature=0.2,
             )
             lang = response.choices[0].message.content.strip()
-            print(".....................", lang)
             return lang
 
         except Exception as e:
@@ -319,7 +322,6 @@ class DocumentExtractor:
         """Check if the path is a URL"""
         try:
             result = urlparse(path)
-            print("IS URL...............", result, all([result.scheme, result.netloc]))
             return all([result.scheme, result.netloc])
         except:
             return False

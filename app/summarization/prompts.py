@@ -11,7 +11,7 @@ Please analyze the provided research paper and generate a comprehensive summary 
 
 ---
 
-## 1. Basic Paper Information
+### 1. Basic Paper Information
 
 Generate a concise summary of the paper's essential metadata using the table below:
 
@@ -25,7 +25,7 @@ Generate a concise summary of the paper's essential metadata using the table bel
 
 ---
 
-## 2. Abstract Summary
+### 2. Abstract Summary
 
 Break down the paper's abstract into its fundamental components:
 
@@ -37,7 +37,7 @@ Break down the paper's abstract into its fundamental components:
 
 ---
 
-## 3. Methodology Summary
+### 3. Methodology Summary
 
 Describe how the research was conducted:
 
@@ -55,7 +55,7 @@ Describe how the research was conducted:
 
 ---
 
-## 4. Key Results
+### 4. Key Results
 
 List and explain the paper's main outcomes and their importance:
 
@@ -87,7 +87,7 @@ Provide a concise summary of the paper's specific technical aspects:
 
 ---
 
-## 6. Key Equations
+### 6. Key Equations
 
 Highlight and explain the major equations presented in the paper (use LaTeX format):
 
@@ -100,7 +100,7 @@ Highlight and explain the major equations presented in the paper (use LaTeX form
 
 ---
 
-## 7. Related Work
+### 7. Related Work
 
 Show how this research fits into the existing landscape:
 
@@ -116,7 +116,7 @@ Show how this research fits into the existing landscape:
 
 ---
 
-## 8. Limitations & Future Work
+### 8. Limitations & Future Work
 
 Detail the limitations encountered and suggested future directions:
 
@@ -133,7 +133,7 @@ Detail the limitations encountered and suggested future directions:
 
 ---
 
-## 9. Practical Applications
+### 9. Practical Applications
 
 Explore potential real-world applications of the research findings:
 
