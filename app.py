@@ -464,5 +464,14 @@ if pdf_links:
             update_navigation_table(pdf_links)
         st.session_state.start_time = None
         process_executor.shutdown(wait=False)
+
 else:
     st.info("Please upload PDF files or provide PDF URLs using the sidebar to get started.")
+
+
+if __name__ == "__main__":
+    if "__streamlitmagic__" not in locals():
+        from streamlit.web.bootstrap import run
+
+        run(__file__, False, [], {})
+
