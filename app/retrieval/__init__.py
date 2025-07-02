@@ -1,3 +1,0 @@
-"""
-Retrieval package.
-"""

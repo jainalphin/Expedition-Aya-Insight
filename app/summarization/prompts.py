@@ -6,7 +6,8 @@ comprehensive_research_paper_prompt = """
 # Research Paper Summarization: Comprehensive Analysis Guide
 
 **Note: Always return the summary in the same language as the original paper.**
-Please analyze the provided research paper and generate a comprehensive summary. **IMPORTANT: Only include sections and details where information is actually available in the paper. If a section has no relevant information, omit it entirely rather than using placeholders or empty entries.**
+Please analyze the provided research paper and generate a comprehensive summary. 
+**IMPORTANT: Only include sections and details where information is actually available in the paper. If a section has no relevant information, omit it entirely rather than using placeholders or empty entries.**
 
 ---
 
@@ -74,7 +75,7 @@ List and explain the paper's main outcomes and their importance:
 
 ### 5. Technical Details
 
-Provide a concise summary of the paper's specific technical aspects:
+Provide a concise summary of the paper's specific technical aspects. Only include rows for information explicitly available in the paper - omit any rows where the corresponding details are not provided or clearly stated:
 
 | Component         | Description                        | Key Configuration or Parameters         |
 |-------------------|-------------------------------------|--------------------------------------|
@@ -88,7 +89,7 @@ Provide a concise summary of the paper's specific technical aspects:
 
 ### 6. Key Equations
 
-Highlight and explain the major equations presented in the paper (use LaTeX format):
+Highlight and explain the major equations presented in the paper. For each equation, describe its purpose, define its variables, and explain its significance to the research. Use the table below. Use LaTeX format ($$...$$ for block, $...$ for inline) for equations. Provide the output in the same language as this prompt. If a specific detail cannot be found, do not include this section..
 
 | Equation          | Purpose or Role in the Paper      | Why It Matters to the Research     |
 |-------------------|-----------------------------------|------------------------------------|
@@ -147,7 +148,7 @@ Explore potential real-world applications of the research findings:
 
 ---
 
-*Please provide a thorough analysis covering all these sections based on the research paper content.*
+*Please provide a thorough analysis covering all these sections based on the research paper content in {language}.*
 
 {research_paper}
 """

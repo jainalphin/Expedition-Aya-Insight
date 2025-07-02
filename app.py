@@ -1,4 +1,5 @@
 import os
+import shutil
 import urllib.parse
 import pandas as pd
 import streamlit as st
@@ -16,6 +17,8 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - [%(threadName)s:%(lineno)d] - %(message)s')
 logger = logging.getLogger(__name__)
 
+if os.path.isdir("temp_uploads"):
+    shutil.rmtree("temp_uploads")
 st.set_page_config(page_title="AI-Powered Scientific Summarization", layout="wide")
 
 

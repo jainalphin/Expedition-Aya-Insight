@@ -77,7 +77,7 @@ class DocumentSummarizer:
                     },
                     {
                         "role": "user",
-                        "content": prompt.format(research_paper=documents)
+                        "content": prompt.format(research_paper=documents, language=language)
                     }
                 ],
                 stream=True
