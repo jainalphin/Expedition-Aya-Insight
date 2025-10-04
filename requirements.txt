@@ -8,3 +8,4 @@ langchain-cohere
 pypdf
 pytesseract
 Pillow
+openai
